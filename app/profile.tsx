@@ -85,7 +85,7 @@ export default function ProfileScreen() {
   };
 
   const handleEditProfile = () => {
-    Alert.alert('Edit Profile', 'Profile editing feature coming soon!');
+    router.push('/edit-profile');
   };
 
   const handlePaymentMethods = () => {

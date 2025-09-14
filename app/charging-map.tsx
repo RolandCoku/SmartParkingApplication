@@ -4,15 +4,15 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    Alert,
-    Modal,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Alert,
+  Modal,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -250,9 +250,14 @@ export default function ChargingMapScreen() {
           onPress={() => Alert.alert('Navigation', `Navigate to ${station.name}`)}
           disabled={!station.available}
         >
-          <MaterialIcons name="navigation" size={16} color={station.available ? '#FFFFFF' : colors.textSecondary} />
+          <MaterialIcons 
+            name={station.available ? "navigation" : "block"} 
+            size={16} 
+            color={station.available ? '#FFFFFF' : '#FFFFFF'} 
+            style={{ opacity: station.available ? 1 : 0.7 }}
+          />
           <Text style={[styles.navigateButtonText, !station.available && styles.navigateButtonTextDisabled]}>
-            Navigate
+            {station.available ? 'Navigate' : 'Unavailable'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -562,7 +567,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: colors.surface,
     marginHorizontal: 24,
-    marginTop: 16,
+    marginVertical: 16,
     borderRadius: 12,
     padding: 4,
     borderWidth: 1,
@@ -770,7 +775,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   navigateButtonDisabled: {
-    backgroundColor: colors.textSecondary,
+    backgroundColor: colors.border,
   },
   navigateButtonText: {
     color: '#FFFFFF',
@@ -778,7 +783,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   navigateButtonTextDisabled: {
-    color: colors.textSecondary,
+    color: '#FFFFFF',
+    opacity: 0.7,
   },
   emptyState: {
     alignItems: 'center',

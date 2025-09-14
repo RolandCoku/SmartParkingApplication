@@ -8,6 +8,7 @@ interface AuthButtonProps {
   loading?: boolean;
   disabled?: boolean;
   variant?: "primary" | "secondary";
+  style?: ViewStyle;
 }
 
 const AuthButton: React.FC<AuthButtonProps> = ({
@@ -16,6 +17,7 @@ const AuthButton: React.FC<AuthButtonProps> = ({
   loading = false,
   disabled = false,
   variant = "primary",
+  style,
 }) => {
   const isPrimary = variant === "primary";
 
@@ -23,6 +25,7 @@ const AuthButton: React.FC<AuthButtonProps> = ({
     styles.button,
     isPrimary ? styles.primary : styles.secondary,
     ...((loading || disabled) ? [styles.disabled] : []),
+    ...(style ? [style] : []),
   ];
 
   return (

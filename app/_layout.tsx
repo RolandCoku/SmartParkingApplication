@@ -147,6 +147,33 @@ export default function RootLayout() {
           headerShown: false,
         }} 
       />
+      <Stack.Screen 
+        name="edit-profile" 
+        options={{ 
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
+          animation: 'slide_from_right',
+          headerShown: false,
+        }} 
+      />
+      <Stack.Screen 
+        name="change-password" 
+        options={{ 
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
+          animation: 'slide_from_right',
+          headerShown: false,
+        }} 
+      />
+      <Stack.Screen 
+        name="notification-preferences" 
+        options={{ 
+          gestureEnabled: true,
+          gestureDirection: 'horizontal',
+          animation: 'slide_from_right',
+          headerShown: false,
+        }} 
+      />
       <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
     </Stack>
   );
