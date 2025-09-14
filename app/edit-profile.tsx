@@ -21,7 +21,6 @@ interface ProfileForm {
   name: string;
   email: string;
   phone: string;
-  bio: string;
 }
 
 export default function EditProfileScreen() {
@@ -32,7 +31,6 @@ export default function EditProfileScreen() {
     name: 'John Doe',
     email: 'john.doe@example.com',
     phone: '+1 (555) 123-4567',
-    bio: 'Parking enthusiast and city explorer',
   });
 
   const handleInputChange = (field: keyof ProfileForm, value: string) => {
@@ -184,22 +182,6 @@ export default function EditProfileScreen() {
             </View>
           </View>
 
-          {/* Bio Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>About You</Text>
-            
-            <View style={styles.inputContainer}>
-              <FloatingLabelInput
-                label="Bio"
-                value={formData.bio}
-                onChangeText={(value) => handleInputChange('bio', value)}
-                placeholder="Tell us about yourself"
-                multiline
-                numberOfLines={4}
-                style={styles.bioInput}
-              />
-            </View>
-          </View>
 
           {/* Account Settings Section */}
           <View style={styles.section}>
@@ -368,10 +350,6 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     marginBottom: 16,
-  },
-  bioInput: {
-    minHeight: 100,
-    textAlignVertical: 'top',
   },
   settingsCard: {
     backgroundColor: colors.surface,
