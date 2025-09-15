@@ -5,17 +5,17 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AuthButton from '../components/AuthButton';
@@ -142,7 +142,10 @@ export default function HomeScreen() {
                   onSpotPress={(spot) => router.push('/parking-details')}
                   onBookNow={() => router.push('/booking')}
                 />
-                <RecentBookings onSeeAll={() => setShowBookingsModal(true)} />
+                <RecentBookings 
+                  onSeeAll={() => setShowBookingsModal(true)}
+                  onBookingPress={(booking) => router.push(`/booking-details?bookingId=${booking.id}`)}
+                />
               </>
             )}
           </ScrollView>
@@ -214,7 +217,10 @@ export default function HomeScreen() {
             contentContainerStyle={[modalStyles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
             showsVerticalScrollIndicator={false}
           >
-            <BookingsModalContent />
+            <BookingsModalContent onBookingPress={(booking) => {
+              setShowBookingsModal(false);
+              router.push(`/booking-details?bookingId=${booking.id}`);
+            }} />
           </ScrollView>
         </View>
       </Modal>
@@ -365,6 +371,7 @@ const chipStyles = StyleSheet.create({
 // Separate Parking Spots section
 function ParkingSpots({ onExplore, onSpotPress, onBookNow }: { onExplore: () => void; onSpotPress: (spot: ParkingSpot) => void; onBookNow: () => void }) {
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [selectedFilter, setSelectedFilter] = useState<string>('All');
 
   const items: ParkingSpot[] = useMemo(
     () => [
@@ -388,6 +395,17 @@ function ParkingSpots({ onExplore, onSpotPress, onBookNow }: { onExplore: () => 
     });
   };
 
+  const filters = ['All', 'Favorites', 'EV Charging', 'Covered', '24/7'];
+
+  const filteredItems = items.filter(item => {
+    if (selectedFilter === 'All') return true;
+    if (selectedFilter === 'Favorites') return favorites.has(item.id);
+    if (selectedFilter === 'EV Charging') return item.features.includes('EV');
+    if (selectedFilter === 'Covered') return item.features.includes('Covered');
+    if (selectedFilter === '24/7') return item.features.includes('24/7');
+    return true;
+  });
+
   return (
     <View style={spotsStyles.container}>
       <View style={spotsStyles.header}>
@@ -397,8 +415,26 @@ function ParkingSpots({ onExplore, onSpotPress, onBookNow }: { onExplore: () => 
         </TouchableOpacity>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={spotsStyles.content}>
-        {items.map((item) => (
+      {/* Filter Chips */}
+      <View style={spotsStyles.filterContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={spotsStyles.filterScroll}>
+          {filters.map((filter) => (
+            <TouchableOpacity
+              key={filter}
+              style={[spotsStyles.filterChip, selectedFilter === filter && spotsStyles.filterChipActive]}
+              onPress={() => setSelectedFilter(filter)}
+            >
+              <Text style={[spotsStyles.filterChipText, selectedFilter === filter && spotsStyles.filterChipTextActive]}>
+                {filter}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {filteredItems.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={spotsStyles.content}>
+          {filteredItems.map((item) => (
           <TouchableOpacity
             key={item.id}
             style={[spotsStyles.card, !item.isAvailable && spotsStyles.cardUnavailable]}
@@ -448,8 +484,21 @@ function ParkingSpots({ onExplore, onSpotPress, onBookNow }: { onExplore: () => 
               variant={item.isAvailable ? "primary" : "secondary"}
             />
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+          ))}
+        </ScrollView>
+      ) : (
+        <View style={spotsStyles.emptyStateContainer}>
+          <View style={spotsStyles.emptyState}>
+            <MaterialIcons name="local-parking" size={48} color={colors.textSecondary} />
+            <Text style={spotsStyles.emptyTitle}>No Spots Found</Text>
+            <Text style={spotsStyles.emptySubtitle}>
+              {selectedFilter === 'Favorites' 
+                ? 'You haven\'t added any favorites yet'
+                : `No ${selectedFilter.toLowerCase()} spots available`}
+            </Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -677,7 +726,60 @@ const spotsStyles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingHorizontal: 24 },
   title: { color: colors.text, fontSize: 18, fontWeight: '800' },
   seeAll: { color: colors.primary, fontSize: 14, fontWeight: '600' },
+  filterContainer: {
+    marginBottom: 16,
+    paddingHorizontal: 24,
+  },
+  filterScroll: {
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginRight: 8,
+  },
+  filterChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterChipText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: '#000000',
+    fontWeight: '700',
+  },
   content: { paddingHorizontal: 16 },
+  emptyStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 12,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
   card: { width: 240, backgroundColor: colors.surface, borderRadius: 16, padding: 14, marginHorizontal: 8, borderWidth: 1, borderColor: colors.border },
   cardUnavailable: { opacity: 0.7 },
   cardHeader: { marginBottom: 10 },
@@ -697,7 +799,7 @@ const spotsStyles = StyleSheet.create({
 });
 
 // Recent Bookings section
-function RecentBookings({ onSeeAll }: { onSeeAll: () => void }) {
+function RecentBookings({ onSeeAll, onBookingPress }: { onSeeAll: () => void; onBookingPress?: (booking: RecentBooking) => void }) {
   const bookings: RecentBooking[] = [
     { id: '1', location: 'City Center Garage', date: 'Today', duration: '2h 30m', amount: '$7.50', status: 'active' },
     { id: '2', location: 'Mall Parking West', date: 'Yesterday', duration: '1h 45m', amount: '$5.25', status: 'completed' },
@@ -722,7 +824,12 @@ function RecentBookings({ onSeeAll }: { onSeeAll: () => void }) {
         </TouchableOpacity>
       </View>
       {bookings.map((booking) => (
-        <TouchableOpacity key={booking.id} style={bookingsStyles.bookingCard}>
+        <TouchableOpacity 
+          key={booking.id} 
+          style={bookingsStyles.bookingCard}
+          onPress={() => onBookingPress?.(booking)}
+          activeOpacity={0.7}
+        >
           <View style={bookingsStyles.bookingHeader}>
             <Text style={bookingsStyles.bookingLocation}>{booking.location}</Text>
             <Text style={[bookingsStyles.bookingStatus, { color: getStatusColor(booking.status) }]}>
@@ -853,7 +960,7 @@ function AvailableSpotsModalContent() {
   );
 }
 
-function BookingsModalContent() {
+function BookingsModalContent({ onBookingPress }: { onBookingPress?: (booking: RecentBooking) => void }) {
   const bookings: RecentBooking[] = [
     { id: '1', location: 'City Center Garage', date: 'Today', duration: '2h 30m', amount: '$7.50', status: 'active' },
     { id: '2', location: 'Mall Parking West', date: 'Yesterday', duration: '1h 45m', amount: '$5.25', status: 'completed' },
@@ -892,7 +999,12 @@ function BookingsModalContent() {
 
       <View style={modalContentStyles.bookingsList}>
         {bookings.map((booking) => (
-          <TouchableOpacity key={booking.id} style={modalContentStyles.bookingCard}>
+          <TouchableOpacity 
+            key={booking.id} 
+            style={modalContentStyles.bookingCard}
+            onPress={() => onBookingPress?.(booking)}
+            activeOpacity={0.7}
+          >
             <View style={modalContentStyles.bookingHeader}>
               <Text style={modalContentStyles.bookingLocation}>{booking.location}</Text>
               <Text style={[modalContentStyles.bookingStatus, { color: getStatusColor(booking.status) }]}>

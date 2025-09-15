@@ -42,6 +42,7 @@ export default function AvailableSpotsScreen() {
     features: 'all',
     availability: 'all',
     price: 'all',
+    favorites: 'all',
   });
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -170,7 +171,7 @@ export default function AvailableSpotsScreen() {
     }
   ];
 
-  const filters = ['All', 'EV Charging', 'Covered', '24/7', 'Nearby'];
+  const filters = ['All', 'Favorites', 'EV Charging', 'Covered', '24/7', 'Nearby'];
 
   const filteredSpots = parkingSpots.filter(spot => {
     // Search filter
@@ -185,6 +186,7 @@ export default function AvailableSpotsScreen() {
     
     // Quick filter chips
     if (selectedFilter === 'All') return true;
+    if (selectedFilter === 'Favorites') return favorites.has(spot.id);
     if (selectedFilter === 'EV Charging') return spot.hasCharging;
     if (selectedFilter === 'Covered') return spot.features.includes('Covered');
     if (selectedFilter === '24/7') return spot.features.includes('24/7');
@@ -213,6 +215,9 @@ export default function AvailableSpotsScreen() {
       if (selectedFilters.price === 'medium' && (priceValue <= 2.0 || priceValue > 3.0)) return false;
       if (selectedFilters.price === 'expensive' && priceValue <= 3.0) return false;
     }
+    
+    if (selectedFilters.favorites === 'favorites' && !favorites.has(spot.id)) return false;
+    if (selectedFilters.favorites === 'not-favorites' && favorites.has(spot.id)) return false;
     
     return true;
   });
@@ -465,6 +470,23 @@ export default function AvailableSpotsScreen() {
                      price === 'cheap' ? 'Under $2/hr' :
                      price === 'medium' ? '$2-3/hr' :
                      'Over $3/hr'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Favorites Filter */}
+            <View style={styles.filterSection}>
+              <Text style={styles.filterSectionTitle}>Favorites</Text>
+              {['all', 'favorites', 'not-favorites'].map((favorite) => (
+                <TouchableOpacity
+                  key={favorite}
+                  style={[styles.filterOption, selectedFilters.favorites === favorite && styles.filterOptionActive]}
+                  onPress={() => setSelectedFilters(prev => ({ ...prev, favorites: favorite }))}
+                >
+                  <Text style={[styles.filterOptionText, selectedFilters.favorites === favorite && styles.filterOptionTextActive]}>
+                    {favorite === 'all' ? 'All Spots' : 
+                     favorite === 'favorites' ? 'Favorites Only' : 'Not Favorites'}
                   </Text>
                 </TouchableOpacity>
               ))}

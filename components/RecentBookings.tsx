@@ -1,6 +1,6 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors } from '@/constants/SharedStyles';
+import React from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface RecentBooking {
   id: string;
@@ -11,7 +11,11 @@ interface RecentBooking {
   status: 'completed' | 'active' | 'cancelled';
 }
 
-export default function RecentBookings() {
+interface RecentBookingsProps {
+  onBookingPress?: (booking: RecentBooking) => void;
+}
+
+export default function RecentBookings({ onBookingPress }: RecentBookingsProps) {
   const bookings: RecentBooking[] = [
     { id: '1', location: 'City Center Garage', date: 'Today', duration: '2h 30m', amount: '$7.50', status: 'active' },
     {
@@ -54,7 +58,12 @@ export default function RecentBookings() {
         </TouchableOpacity>
       </View>
       {bookings.map((booking) => (
-        <TouchableOpacity key={booking.id} style={styles.bookingCard}>
+        <TouchableOpacity 
+          key={booking.id} 
+          style={styles.bookingCard}
+          onPress={() => onBookingPress?.(booking)}
+          activeOpacity={0.7}
+        >
           <View style={styles.bookingHeader}>
             <Text style={styles.bookingLocation}>{booking.location}</Text>
             <Text style={[styles.bookingStatus, { color: getStatusColor(booking.status) }]}>

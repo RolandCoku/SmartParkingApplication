@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, Alert, StyleSheet } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { colors } from '@/constants/SharedStyles';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import React, { useMemo, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import AuthButton from './AuthButton';
 
 interface ParkingSpot {
@@ -22,6 +22,7 @@ interface ParkingSpotsProps {
 
 export default function ParkingSpots({ onExplore }: ParkingSpotsProps) {
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [selectedFilter, setSelectedFilter] = useState<string>('All');
 
   const items: ParkingSpot[] = useMemo(
     () => [
@@ -85,6 +86,17 @@ export default function ParkingSpots({ onExplore }: ParkingSpotsProps) {
     });
   };
 
+  const filters = ['All', 'Favorites', 'EV Charging', 'Covered', '24/7'];
+
+  const filteredItems = items.filter(item => {
+    if (selectedFilter === 'All') return true;
+    if (selectedFilter === 'Favorites') return favorites.has(item.id);
+    if (selectedFilter === 'EV Charging') return item.features.includes('EV');
+    if (selectedFilter === 'Covered') return item.features.includes('Covered');
+    if (selectedFilter === '24/7') return item.features.includes('24/7');
+    return true;
+  });
+
   const getFeatureStyle = (feature: string) => {
     switch (feature) {
       case 'Covered':
@@ -111,8 +123,26 @@ export default function ParkingSpots({ onExplore }: ParkingSpotsProps) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.content}>
-        {items.map((item) => (
+      {/* Filter Chips */}
+      <View style={styles.filterContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+          {filters.map((filter) => (
+            <TouchableOpacity
+              key={filter}
+              style={[styles.filterChip, selectedFilter === filter && styles.filterChipActive]}
+              onPress={() => setSelectedFilter(filter)}
+            >
+              <Text style={[styles.filterChipText, selectedFilter === filter && styles.filterChipTextActive]}>
+                {filter}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {filteredItems.length > 0 ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.content}>
+          {filteredItems.map((item) => (
           <View key={item.id} style={[styles.card, !item.isAvailable && styles.cardUnavailable]}>
             <View style={styles.cardHeader}>
               <View style={styles.titleRow}>
@@ -167,8 +197,21 @@ export default function ParkingSpots({ onExplore }: ParkingSpotsProps) {
               variant={item.isAvailable ? "primary" : "secondary"}
             />
           </View>
-        ))}
-      </ScrollView>
+          ))}
+        </ScrollView>
+      ) : (
+        <View style={styles.emptyStateContainer}>
+          <View style={styles.emptyState}>
+            <MaterialIcons name="local-parking" size={48} color={colors.textSecondary} />
+            <Text style={styles.emptyTitle}>No Spots Found</Text>
+            <Text style={styles.emptySubtitle}>
+              {selectedFilter === 'Favorites' 
+                ? 'You haven\'t added any favorites yet'
+                : `No ${selectedFilter.toLowerCase()} spots available`}
+            </Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -184,7 +227,60 @@ const styles = StyleSheet.create({
   },
   title: { color: colors.text, fontSize: 18, fontWeight: '800' },
   seeAll: { color: colors.primary, fontSize: 14, fontWeight: '600' },
+  filterContainer: {
+    marginBottom: 16,
+    paddingHorizontal: 24,
+  },
+  filterScroll: {
+    gap: 8,
+  },
+  filterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginRight: 8,
+  },
+  filterChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterChipText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: '#000000',
+    fontWeight: '700',
+  },
   content: { paddingHorizontal: 16 },
+  emptyStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 12,
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
   card: {
     width: 240,
     backgroundColor: colors.surface,

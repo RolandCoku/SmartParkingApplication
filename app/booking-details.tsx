@@ -169,9 +169,7 @@ export default function BookingDetailsScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerSpacer} />
         <Text style={styles.headerTitle}>Booking Details</Text>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <MaterialIcons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
+        <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView
@@ -341,10 +339,6 @@ const styles = StyleSheet.create({
   },
   headerSpacer: {
     width: 40,
-  },
-  backButton: {
-    padding: 8,
-    borderRadius: 8,
   },
   content: {
     flex: 1,
