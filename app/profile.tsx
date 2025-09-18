@@ -1,10 +1,14 @@
 import { colors } from '@/constants/SharedStyles';
+import { Booking, ParkingSession, UserCar } from '@/types';
+import { ApiError, bookingsApi, sessionsApi, userApi } from '@/utils/api';
 import { logout } from '@/utils/auth';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
+    RefreshControl,
     ScrollView,
     StatusBar,
     StyleSheet,
@@ -18,13 +22,14 @@ import AuthButton from '../components/AuthButton';
 import BottomBar from '../components/BottomBar';
 
 interface UserProfile {
-  id: string;
+  id: number;
   name: string;
   email: string;
   phone: string;
   memberSince: string;
   totalBookings: number;
-  totalSpent: string;
+  totalSpent: number;
+  totalSessions: number;
   avatar?: string;
 }
 
@@ -43,16 +48,62 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [locationEnabled, setLocationEnabled] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [userCars, setUserCars] = useState<UserCar[]>([]);
+  const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
+  const [recentSessions, setRecentSessions] = useState<ParkingSession[]>([]);
 
-  // Mock user data
-  const userProfile: UserProfile = {
-    id: '1',
-    name: 'John Doe',
-    email: 'john.doe@example.com',
-    phone: '+1 (555) 123-4567',
-    memberSince: 'January 2024',
-    totalBookings: 47,
-    totalSpent: '$234.50',
+  useEffect(() => {
+    loadProfileData();
+  }, []);
+
+  const loadProfileData = async () => {
+    try {
+      setLoading(true);
+      
+      // Load user data
+      const user = await userApi.getCurrentUser();
+      
+      // Load user cars
+      const carsResponse = await userApi.getUserCars(0, 5);
+      
+      // Load recent bookings
+      const bookingsResponse = await bookingsApi.getUserBookings(0, 5);
+      
+      // Load recent sessions
+      const sessionsResponse = await sessionsApi.getUserSessions(0, 5);
+      
+      // Calculate totals
+      const totalBookings = bookingsResponse.totalElements || 0;
+      const totalSessions = sessionsResponse.totalElements || 0;
+      const totalSpent = (bookingsResponse.content || []).reduce((sum, booking) => sum + (booking.totalPrice || 0), 0) +
+                        (sessionsResponse.content || []).reduce((sum, session) => sum + (session.billedAmount || 0), 0);
+      
+      setUserProfile({
+        id: user.id,
+        name: `${user.firstName} ${user.lastName}`,
+        email: user.email,
+        phone: user.phoneNumber,
+        memberSince: new Date(user.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+        totalBookings,
+        totalSpent,
+        totalSessions,
+      });
+      
+      setUserCars(carsResponse.content || []);
+      setRecentBookings(bookingsResponse.content || []);
+      setRecentSessions(sessionsResponse.content || []);
+      
+    } catch (error) {
+      if (error instanceof ApiError) {
+        Alert.alert('Error', `Failed to load profile: ${error.message}`);
+      } else {
+        Alert.alert('Error', 'Failed to load profile data. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleNavigation = (key: 'home' | 'search' | 'available' | 'bookings' | 'profile') => {
@@ -199,6 +250,46 @@ export default function ProfileScreen() {
     );
   };
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.headerSpacer} />
+          <Text style={styles.headerTitle}>Profile</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (!userProfile) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.headerSpacer} />
+          <Text style={styles.headerTitle}>Profile</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+        <View style={styles.errorContainer}>
+          <MaterialIcons name="error-outline" size={48} color={colors.textSecondary} />
+          <Text style={styles.errorTitle}>Failed to Load Profile</Text>
+          <Text style={styles.errorSubtitle}>Please try again later</Text>
+          <AuthButton
+            title="Retry"
+            onPress={loadProfileData}
+            variant="primary"
+          />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
@@ -215,6 +306,13 @@ export default function ProfileScreen() {
         style={styles.content}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={loadProfileData}
+            tintColor={colors.primary}
+          />
+        }
       >
         {/* User Profile Section */}
         <View style={styles.profileSection}>
@@ -237,7 +335,12 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{userProfile.totalSpent}</Text>
+              <Text style={styles.statValue}>{userProfile.totalSessions}</Text>
+              <Text style={styles.statLabel}>Sessions</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>${userProfile.totalSpent.toFixed(2)}</Text>
               <Text style={styles.statLabel}>Total Spent</Text>
             </View>
           </View>
@@ -265,6 +368,83 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* My Vehicles */}
+        {userCars.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>My Vehicles</Text>
+              <TouchableOpacity onPress={() => router.push('/my-vehicles')}>
+                <Text style={styles.seeAll}>View All</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.carsCard}>
+              {userCars.slice(0, 3).map((car) => (
+                <View key={car.id} style={styles.carItem}>
+                  <View style={styles.carInfo}>
+                    <Text style={styles.carPlate}>{car.licensePlate}</Text>
+                    <Text style={styles.carDetails}>{car.brand} {car.model}</Text>
+                    <Text style={styles.carColor}>{car.color}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Recent Activity */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent Activity</Text>
+          <View style={styles.activityCard}>
+            {recentBookings.length > 0 && (
+              <View style={styles.activitySection}>
+                <Text style={styles.activityTitle}>Recent Bookings</Text>
+                {recentBookings.slice(0, 2).map((booking) => (
+                  <View key={booking.id} style={styles.activityItem}>
+                    <View style={styles.activityInfo}>
+                      <Text style={styles.activityLocation}>{booking.parkingLotName}</Text>
+                      <Text style={styles.activityDate}>
+                        {new Date(booking.startTime).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <Text style={styles.activityStatus}>
+                      {booking.status}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            
+            {recentSessions.length > 0 && (
+              <View style={styles.activitySection}>
+                <Text style={styles.activityTitle}>Recent Sessions</Text>
+                {recentSessions.slice(0, 2).map((session) => (
+                  <View key={session.id} style={styles.activityItem}>
+                    <View style={styles.activityInfo}>
+                      <Text style={styles.activityLocation}>{session.parkingLotName}</Text>
+                      <Text style={styles.activityDate}>
+                        {new Date(session.startedAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <Text style={styles.activityStatus}>
+                      {session.status}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            
+            {recentBookings.length === 0 && recentSessions.length === 0 && (
+              <View style={styles.emptyActivity}>
+                <MaterialIcons name="history" size={32} color={colors.textSecondary} />
+                <Text style={styles.emptyActivityText}>No recent activity</Text>
+                <Text style={styles.emptyActivitySubtext}>
+                  Start booking parking spots to see your activity here
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+
         {/* Settings */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Settings</Text>
@@ -272,6 +452,7 @@ export default function ProfileScreen() {
             {settingsItems.map(renderSettingsItem)}
           </View>
         </View>
+
 
         {/* Logout Button */}
         <View style={styles.logoutSection}>
@@ -474,5 +655,141 @@ const styles = StyleSheet.create({
   },
   logoutSection: {
     marginTop: 16,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    marginTop: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 24,
+  },
+  errorTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  errorSubtitle: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  seeAll: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  carsCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  carItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  carInfo: {
+    flex: 1,
+  },
+  carPlate: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  carDetails: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  carColor: {
+    color: colors.textSecondary,
+    fontSize: 12,
+  },
+  activityCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  activitySection: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  activityTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  activityItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  activityInfo: {
+    flex: 1,
+  },
+  activityLocation: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  activityDate: {
+    color: colors.textSecondary,
+    fontSize: 12,
+  },
+  activityStatus: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  emptyActivity: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptyActivityText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    marginTop: 8,
+  },
+  emptyActivitySubtext: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: 'center',
+    opacity: 0.7,
   },
 });

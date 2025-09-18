@@ -5,7 +5,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface HeaderProps {
   onLogout: () => void;
-  user: { name: string };
+  user: { name: string; firstName?: string; lastName?: string };
 }
 
 export default function Header({ onLogout, user }: HeaderProps) {

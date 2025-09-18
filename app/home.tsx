@@ -5,17 +5,17 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AuthButton from '../components/AuthButton';
@@ -60,7 +60,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [authenticated, setAuthenticated] = useState(true);
-  const [user] = useState({ name: 'John Doe' });
+  const [user] = useState({ name: 'John Doe', firstName: 'John', lastName: 'Doe' });
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
 });
 
 // Enhanced Header with user info and notifications
-function Header({ onLogout, user, router }: { onLogout: () => void; user: { name: string }; router: any }) {
+function Header({ onLogout, user, router }: { onLogout: () => void; user: { name: string; firstName?: string; lastName?: string }; router: any }) {
   return (
     <View style={headerStyles.container}>
       <View style={headerStyles.leftSection}>
