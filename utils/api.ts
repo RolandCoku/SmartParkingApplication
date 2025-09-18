@@ -1,6 +1,6 @@
 import { API_CONFIG, API_ENDPOINTS } from '@/config/api';
 import { ApiResponse, Booking, PaginatedResponse, ParkingSession, User, UserCar } from '@/types';
-import { getAccessToken } from './auth';
+import { authenticatedFetch } from './auth';
 
 const API_BASE_URL = API_CONFIG.BASE_URL;
 
@@ -15,13 +15,10 @@ async function makeRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = await getAccessToken();
-  
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await authenticatedFetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
       ...options.headers,
     },
   });

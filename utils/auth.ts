@@ -1,6 +1,12 @@
 import * as SecureStore from 'expo-secure-store';
 import { authDebugError, authDebugLog } from '../config/debug';
 
+// Import ApiError type for the utility function
+interface ApiError {
+  status: number;
+  message: string;
+}
+
 const API_BASE = 'http://192.168.252.60:8080';
 
 // Updated interface to match API TokenResponseDTO
@@ -200,13 +206,39 @@ export async function authenticatedFetch(url: string, options: any = {}) {
     options.headers = options.headers || {};
     options.headers['Authorization'] = `Bearer ${accessToken}`;
     let res = await fetch(url, options);
+    
     if (res.status === 401) {
-        // Try refresh
-        await refreshToken();
-        accessToken = await getAccessToken();
-        options.headers['Authorization'] = `Bearer ${accessToken}`;
-        res = await fetch(url, options);
+        try {
+            // Try to refresh the token
+            await refreshToken();
+            accessToken = await getAccessToken();
+            if (!accessToken) throw new Error('Failed to get new access token');
+            
+            options.headers['Authorization'] = `Bearer ${accessToken}`;
+            res = await fetch(url, options);
+        } catch (refreshError) {
+            // Refresh failed - clear all tokens and throw error
+            authDebugError('Token refresh failed:', refreshError);
+            await logout();
+            throw new Error('Session expired. Please login again.');
+        }
     }
+    
     return res;
+}
+
+// Utility function to check if an error indicates session expiry
+export function isSessionExpiredError(error: any): boolean {
+    if (error instanceof Error) {
+        return error.message.includes('Session expired') || 
+               error.message.includes('Please login again') ||
+               error.message.includes('No access token');
+    }
+    if (error instanceof ApiError) {
+        return error.message.includes('Session expired') || 
+               error.message.includes('Please login again') ||
+               error.status === 401;
+    }
+    return false;
 }
 

@@ -97,7 +97,31 @@ export default function ProfileScreen() {
       
     } catch (error) {
       if (error instanceof ApiError) {
-        Alert.alert('Error', `Failed to load profile: ${error.message}`);
+        if (error.message.includes('Session expired') || error.message.includes('Please login again')) {
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please login again.',
+            [
+              {
+                text: 'OK',
+                onPress: () => router.replace('/login')
+              }
+            ]
+          );
+        } else {
+          Alert.alert('Error', `Failed to load profile: ${error.message}`);
+        }
+      } else if (error instanceof Error && error.message.includes('Session expired')) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
       } else {
         Alert.alert('Error', 'Failed to load profile data. Please try again.');
       }

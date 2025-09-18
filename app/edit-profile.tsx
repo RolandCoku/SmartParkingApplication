@@ -64,11 +64,36 @@ export default function EditProfileScreen() {
       });
     } catch (error) {
       if (error instanceof ApiError) {
-        Alert.alert('Error', `Failed to load user data: ${error.message}`);
+        if (error.message.includes('Session expired') || error.message.includes('Please login again')) {
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please login again.',
+            [
+              {
+                text: 'OK',
+                onPress: () => router.replace('/login')
+              }
+            ]
+          );
+        } else {
+          Alert.alert('Error', `Failed to load user data: ${error.message}`);
+          router.back();
+        }
+      } else if (error instanceof Error && error.message.includes('Session expired')) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
       } else {
         Alert.alert('Error', 'Failed to load user data. Please try again.');
+        router.back();
       }
-      router.back();
     } finally {
       setInitialLoading(false);
     }
@@ -134,7 +159,31 @@ export default function EditProfileScreen() {
       );
     } catch (error) {
       if (error instanceof ApiError) {
-        Alert.alert('Error', `Failed to update profile: ${error.message}`);
+        if (error.message.includes('Session expired') || error.message.includes('Please login again')) {
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please login again.',
+            [
+              {
+                text: 'OK',
+                onPress: () => router.replace('/login')
+              }
+            ]
+          );
+        } else {
+          Alert.alert('Error', `Failed to update profile: ${error.message}`);
+        }
+      } else if (error instanceof Error && error.message.includes('Session expired')) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
       } else {
         Alert.alert('Error', 'Failed to update profile. Please try again.');
       }
@@ -174,7 +223,31 @@ export default function EditProfileScreen() {
       );
     } catch (error) {
       if (error instanceof ApiError) {
-        Alert.alert('Error', `Failed to change password: ${error.message}`);
+        if (error.message.includes('Session expired') || error.message.includes('Please login again')) {
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please login again.',
+            [
+              {
+                text: 'OK',
+                onPress: () => router.replace('/login')
+              }
+            ]
+          );
+        } else {
+          Alert.alert('Error', `Failed to change password: ${error.message}`);
+        }
+      } else if (error instanceof Error && error.message.includes('Session expired')) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
       } else {
         Alert.alert('Error', 'Failed to change password. Please try again.');
       }
