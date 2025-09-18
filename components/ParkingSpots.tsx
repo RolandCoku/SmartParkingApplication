@@ -1,6 +1,7 @@
 import { colors } from '@/constants/SharedStyles';
+import { locationService } from '@/utils/location';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import AuthButton from './AuthButton';
 
@@ -23,55 +24,83 @@ interface ParkingSpotsProps {
 export default function ParkingSpots({ onExplore }: ParkingSpotsProps) {
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [selectedFilter, setSelectedFilter] = useState<string>('All');
+  const [nearbySpots, setNearbySpots] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadNearbySpots();
+  }, []);
+
+  const loadNearbySpots = async () => {
+    const spots = await locationService.getNearbyParkingSpots();
+    setNearbySpots(spots);
+  };
 
   const items: ParkingSpot[] = useMemo(
-    () => [
-      {
-        id: '1',
-        title: 'City Center Garage',
-        distance: '0.3 km',
-        price: '$2.5/hr',
-        spots: 12,
-        rating: 4.8,
-        features: ['Covered', 'Security'],
-        isFavorite: false,
-        isAvailable: true
-      },
-      {
-        id: '2',
-        title: 'Riverside Lot A',
-        distance: '0.8 km',
-        price: '$1.8/hr',
-        spots: 7,
-        rating: 4.5,
-        features: ['24/7', 'EV'],
-        isFavorite: true,
-        isAvailable: true
-      },
-      {
-        id: '3',
-        title: 'Mall Parking West',
-        distance: '1.2 km',
-        price: '$3.0/hr',
-        spots: 23,
-        rating: 4.2,
-        features: ['Covered', 'Shopping'],
-        isFavorite: false,
-        isAvailable: false
-      },
-      {
-        id: '4',
-        title: 'Underground C-12',
-        distance: '1.6 km',
-        price: '$2.2/hr',
-        spots: 4,
-        rating: 4.7,
-        features: ['Covered', 'Security', 'EV'],
-        isFavorite: false,
-        isAvailable: true
-      },
-    ],
-    []
+    () => {
+      // Use nearby spots if available and location services are enabled
+      if (nearbySpots.length > 0) {
+        return nearbySpots.map(spot => ({
+          id: spot.id,
+          title: spot.title,
+          distance: spot.distance,
+          price: spot.price,
+          spots: spot.spots,
+          rating: spot.rating,
+          features: spot.features,
+          isFavorite: spot.isFavorite,
+          isAvailable: spot.isAvailable
+        }));
+      }
+
+      // Fallback to default spots
+      return [
+        {
+          id: '1',
+          title: 'City Center Garage',
+          distance: '0.3 km',
+          price: '$2.5/hr',
+          spots: 12,
+          rating: 4.8,
+          features: ['Covered', 'Security'],
+          isFavorite: false,
+          isAvailable: true
+        },
+        {
+          id: '2',
+          title: 'Riverside Lot A',
+          distance: '0.8 km',
+          price: '$1.8/hr',
+          spots: 7,
+          rating: 4.5,
+          features: ['24/7', 'EV'],
+          isFavorite: true,
+          isAvailable: true
+        },
+        {
+          id: '3',
+          title: 'Mall Parking West',
+          distance: '1.2 km',
+          price: '$3.0/hr',
+          spots: 23,
+          rating: 4.2,
+          features: ['Covered', 'Shopping'],
+          isFavorite: false,
+          isAvailable: false
+        },
+        {
+          id: '4',
+          title: 'Underground C-12',
+          distance: '1.6 km',
+          price: '$2.2/hr',
+          spots: 4,
+          rating: 4.7,
+          features: ['Covered', 'Security', 'EV'],
+          isFavorite: false,
+          isAvailable: true
+        },
+      ];
+    },
+    [nearbySpots]
   );
 
   const toggleFavorite = (id: string) => {

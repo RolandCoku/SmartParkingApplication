@@ -1,6 +1,7 @@
 import { colors } from '@/constants/SharedStyles';
 import { User } from '@/types';
-import { ApiError, userApi } from '@/utils/api';
+import { userApi } from '@/utils/api';
+import { ApiError } from '@/utils/errors';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';

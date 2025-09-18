@@ -1,6 +1,7 @@
 import { colors } from '@/constants/SharedStyles';
+import { locationService } from '@/utils/location';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,7 +20,22 @@ interface ParkingLocation {
 export default function MapSection() {
   const [selectedMarker, setSelectedMarker] = useState<number | null>(null);
   const [fullScreenMap, setFullScreenMap] = useState(false);
+  const [userLocation, setUserLocation] = useState<{latitude: number; longitude: number} | null>(null);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    loadUserLocation();
+  }, []);
+
+  const loadUserLocation = async () => {
+    const location = await locationService.getCurrentLocation();
+    if (location) {
+      setUserLocation({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
+    }
+  };
 
   // Dummy parking locations around a central area (using coordinates around Times Square, NYC as example)
   const parkingLocations: ParkingLocation[] = [
@@ -75,10 +91,10 @@ export default function MapSection() {
     },
   ];
 
-  // Center of the map (Times Square area)
+  // Center of the map (use user location if available, otherwise default)
   const mapRegion = {
-    latitude: 40.7580,
-    longitude: -73.9855,
+    latitude: userLocation?.latitude || 40.7580,
+    longitude: userLocation?.longitude || -73.9855,
     latitudeDelta: 0.02,
     longitudeDelta: 0.02,
   };
@@ -99,7 +115,12 @@ export default function MapSection() {
       <View style={styles.mapContainer}>
         <TouchableOpacity
           style={styles.mapTouchable}
-          onPress={() => setFullScreenMap(true)}
+          onPress={async () => {
+            const hasAccess = await locationService.checkLocationAccess('map view');
+            if (hasAccess) {
+              setFullScreenMap(true);
+            }
+          }}
           activeOpacity={0.9}
         >
           <MapView
@@ -149,7 +170,12 @@ export default function MapSection() {
         {/* Map controls */}
         <TouchableOpacity
           style={styles.recenterButton}
-          onPress={() => setFullScreenMap(true)}
+          onPress={async () => {
+            const hasAccess = await locationService.checkLocationAccess('map view');
+            if (hasAccess) {
+              setFullScreenMap(true);
+            }
+          }}
         >
           <MaterialIcons name="fullscreen" size={20} color={colors.primary} />
         </TouchableOpacity>

@@ -1,13 +1,10 @@
 import * as SecureStore from 'expo-secure-store';
 import { authDebugError, authDebugLog } from '../config/debug';
 
-// Import ApiError type for the utility function
-interface ApiError {
-  status: number;
-  message: string;
-}
+// Import ApiError class from errors.ts
+import { ApiError } from './errors';
 
-const API_BASE = 'http://192.168.252.60:8080';
+const API_BASE = 'http://192.168.10.106:8080/api/v1';
 
 // Updated interface to match API TokenResponseDTO
 export interface TokenResponse {
@@ -42,9 +39,9 @@ const STORAGE_KEYS = {
 };
 
 export async function login(username: string, password: string, remember: boolean = true): Promise<TokenResponse> {
-    authDebugLog('Attempting login to:', `${API_BASE}/api/v1/auth/login`);
+    authDebugLog('Attempting login to:', `${API_BASE}/auth/login`);
     
-    const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+    const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({username, password}),
@@ -87,8 +84,8 @@ export interface RegisterResult {
 
 export async function register(user: UserRegistration): Promise<RegisterResult> {
     try {
-        authDebugLog('Attempting registration to:', `${API_BASE}/api/v1/auth/register`);
-        const res = await fetch(`${API_BASE}/api/v1/auth/register`, {
+        authDebugLog('Attempting registration to:', `${API_BASE}/auth/register`);
+        const res = await fetch(`${API_BASE}/auth/register`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(user),
@@ -114,7 +111,7 @@ export async function refreshToken(): Promise<TokenResponse> {
     const storedRefresh = sessionRefresh ? sessionRefresh : await SecureStore.getItemAsync(STORAGE_KEYS.refresh);
     if (!storedRefresh) throw new Error('No refresh token');
 
-    const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({refreshToken: storedRefresh}),
@@ -200,32 +197,7 @@ export async function logout() {
     }
 }
 
-export async function authenticatedFetch(url: string, options: any = {}) {
-    let accessToken = await getAccessToken();
-    if (!accessToken) throw new Error('No access token');
-    options.headers = options.headers || {};
-    options.headers['Authorization'] = `Bearer ${accessToken}`;
-    let res = await fetch(url, options);
-    
-    if (res.status === 401) {
-        try {
-            // Try to refresh the token
-            await refreshToken();
-            accessToken = await getAccessToken();
-            if (!accessToken) throw new Error('Failed to get new access token');
-            
-            options.headers['Authorization'] = `Bearer ${accessToken}`;
-            res = await fetch(url, options);
-        } catch (refreshError) {
-            // Refresh failed - clear all tokens and throw error
-            authDebugError('Token refresh failed:', refreshError);
-            await logout();
-            throw new Error('Session expired. Please login again.');
-        }
-    }
-    
-    return res;
-}
+// authenticatedFetch moved to utils/http.ts to avoid circular dependency
 
 // Utility function to check if an error indicates session expiry
 export function isSessionExpiredError(error: any): boolean {

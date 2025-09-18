@@ -1,7 +1,7 @@
 // API Configuration
 export const API_CONFIG = {
-  BASE_URL: 'http://192.168.252.60:8080/api/v1',
-  TIMEOUT: 10000, // 10 seconds
+  BASE_URL: 'http://192.168.10.106:8080/api/v1',
+  TIMEOUT: 5000, // 5 seconds
   RETRY_ATTEMPTS: 3,
 };
 

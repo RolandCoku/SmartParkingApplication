@@ -1,35 +1,43 @@
 import { API_CONFIG, API_ENDPOINTS } from '@/config/api';
 import { ApiResponse, Booking, PaginatedResponse, ParkingSession, User, UserCar } from '@/types';
-import { authenticatedFetch } from './auth';
+import { ApiError } from './errors';
+import { authenticatedFetch } from './http';
 
 const API_BASE_URL = API_CONFIG.BASE_URL;
-
-class ApiError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-    this.name = 'ApiError';
-  }
-}
 
 async function makeRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const response = await authenticatedFetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new ApiError(response.status, errorData.message || 'Request failed');
+  try {
+    const response = await authenticatedFetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers,
+      },
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new ApiError(response.status, errorData.message || 'Request failed');
+    }
+
+    const data: ApiResponse<T> = await response.json();
+    return data.data;
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new ApiError(408, 'Request timeout');
+    }
+    throw error;
   }
-
-  const data: ApiResponse<T> = await response.json();
-  return data.data;
 }
 
 // User API functions
@@ -122,3 +130,4 @@ export const sessionsApi = {
 };
 
 export { ApiError };
+

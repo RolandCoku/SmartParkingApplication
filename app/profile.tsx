@@ -1,7 +1,9 @@
 import { colors } from '@/constants/SharedStyles';
 import { Booking, ParkingSession, UserCar } from '@/types';
-import { ApiError, bookingsApi, sessionsApi, userApi } from '@/utils/api';
+import { bookingsApi, sessionsApi, userApi } from '@/utils/api';
 import { logout } from '@/utils/auth';
+import { ApiError } from '@/utils/errors';
+import { locationService } from '@/utils/location';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -47,7 +49,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [locationEnabled, setLocationEnabled] = useState(true);
+  const [locationEnabled, setLocationEnabled] = useState(locationService.isLocationEnabled());
   const [loading, setLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [userCars, setUserCars] = useState<UserCar[]>([]);
@@ -198,7 +200,19 @@ export default function ProfileScreen() {
       icon: 'location-on',
       type: 'toggle',
       value: locationEnabled,
-      onPress: () => setLocationEnabled(!locationEnabled),
+      onPress: () => {
+        const newValue = !locationEnabled;
+        setLocationEnabled(newValue);
+        locationService.setLocationEnabled(newValue);
+        
+        if (!newValue) {
+          Alert.alert(
+            'Location Services Disabled',
+            'Location-based features like nearby parking spots and navigation will be disabled. You can re-enable this anytime in settings.',
+            [{ text: 'OK' }]
+          );
+        }
+      },
     },
     {
       id: 'payment',
