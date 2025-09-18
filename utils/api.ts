@@ -55,6 +55,17 @@ export const userApi = {
   async getUserCarById(carId: number): Promise<UserCar> {
     return makeRequest<UserCar>(`${API_ENDPOINTS.USER_CARS}/${carId}`);
   },
+
+  async changePassword(passwordData: {
+    currentPassword: string;
+    newPassword: string;
+    confirmPassword: string;
+  }): Promise<void> {
+    return makeRequest<void>('/me/change-password', {
+      method: 'POST',
+      body: JSON.stringify(passwordData),
+    });
+  },
 };
 
 // Bookings API functions
