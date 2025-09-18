@@ -4,14 +4,14 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  Alert,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Switch,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AuthButton from '../components/AuthButton';
@@ -25,7 +25,6 @@ interface UserProfile {
   memberSince: string;
   totalBookings: number;
   totalSpent: string;
-  points: number;
   avatar?: string;
 }
 
@@ -54,7 +53,6 @@ export default function ProfileScreen() {
     memberSince: 'January 2024',
     totalBookings: 47,
     totalSpent: '$234.50',
-    points: 1247,
   };
 
   const handleNavigation = (key: 'home' | 'search' | 'available' | 'bookings' | 'profile') => {
@@ -241,11 +239,6 @@ export default function ProfileScreen() {
             <View style={styles.statItem}>
               <Text style={styles.statValue}>{userProfile.totalSpent}</Text>
               <Text style={styles.statLabel}>Total Spent</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{userProfile.points}</Text>
-              <Text style={styles.statLabel}>Points</Text>
             </View>
           </View>
         </View>

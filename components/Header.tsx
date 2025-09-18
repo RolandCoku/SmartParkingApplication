@@ -1,11 +1,11 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { colors } from '@/constants/SharedStyles';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import React from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface HeaderProps {
   onLogout: () => void;
-  user: { name: string; points: number };
+  user: { name: string };
 }
 
 export default function Header({ onLogout, user }: HeaderProps) {
@@ -21,10 +21,6 @@ export default function Header({ onLogout, user }: HeaderProps) {
         <Text style={styles.welcomeText}>Welcome back, {user.name.split(' ')[0]}!</Text>
       </View>
       <View style={styles.rightSection}>
-        <View style={styles.pointsBadge}>
-          <MaterialIcons name="stars" size={16} color="#FFD700" />
-          <Text style={styles.pointsText}>{user.points}</Text>
-        </View>
         <TouchableOpacity style={styles.notificationButton}>
           <MaterialIcons name="notifications" size={24} color={colors.text} />
           <View style={styles.notificationDot} />
@@ -69,16 +65,6 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5
   },
   welcomeText: { color: colors.textSecondary, fontSize: 14, fontWeight: '500' },
-  pointsBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    gap: 4
-  },
-  pointsText: { color: colors.text, fontWeight: '700', fontSize: 12 },
   notificationButton: { position: 'relative', padding: 8 },
   notificationDot: {
     position: 'absolute',

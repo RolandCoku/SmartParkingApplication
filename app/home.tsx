@@ -60,7 +60,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [authenticated, setAuthenticated] = useState(true);
-  const [user] = useState({ name: 'John Doe', points: 245 });
+  const [user] = useState({ name: 'John Doe' });
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
 });
 
 // Enhanced Header with user info and notifications
-function Header({ onLogout, user, router }: { onLogout: () => void; user: { name: string; points: number }; router: any }) {
+function Header({ onLogout, user, router }: { onLogout: () => void; user: { name: string }; router: any }) {
   return (
     <View style={headerStyles.container}>
       <View style={headerStyles.leftSection}>
@@ -248,10 +248,6 @@ function Header({ onLogout, user, router }: { onLogout: () => void; user: { name
         <Text style={headerStyles.welcomeText}>Welcome back, {user.name.split(' ')[0]}!</Text>
       </View>
       <View style={headerStyles.rightSection}>
-        <View style={headerStyles.pointsBadge}>
-          <MaterialIcons name="stars" size={16} color="#FFD700" />
-          <Text style={headerStyles.pointsText}>{user.points}</Text>
-        </View>
         <TouchableOpacity 
           style={headerStyles.notificationButton}
           onPress={() => router.push('/notifications')}
@@ -276,8 +272,6 @@ const headerStyles = StyleSheet.create({
   brandHighlight: { backgroundColor: colors.primary, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
   brandHighlightText: { fontSize: 24, fontWeight: '800', color: '#000000', letterSpacing: -0.5 },
   welcomeText: { color: colors.textSecondary, fontSize: 14, fontWeight: '500' },
-  pointsBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, gap: 4 },
-  pointsText: { color: colors.text, fontWeight: '700', fontSize: 12 },
   notificationButton: { position: 'relative', padding: 8 },
   notificationDot: { position: 'absolute', top: 6, right: 6, width: 8, height: 8, backgroundColor: '#FF4444', borderRadius: 4 },
   logoutButton: { padding: 8, backgroundColor: colors.surface, borderRadius: 12, borderWidth: 1, borderColor: colors.border },
