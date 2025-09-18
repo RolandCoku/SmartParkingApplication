@@ -3,16 +3,16 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  Alert,
-  Dimensions,
-  Image,
-  Modal,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    Dimensions,
+    Image,
+    Modal,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AuthButton from '../components/AuthButton';
@@ -57,7 +57,7 @@ export default function ParkingDetailsScreen() {
     title: 'City Center Garage',
     address: '123 Main Street, Downtown District',
     distance: '0.3 km',
-    price: '$2.50/hr',
+    price: 'Rate N/A',
     spots: 12,
     rating: 4.8,
     features: ['Covered', 'Security', 'EV Charging'],

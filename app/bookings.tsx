@@ -1,39 +1,84 @@
 import BottomBar from '@/components/BottomBar';
 import { colors } from '@/constants/SharedStyles';
+import { Booking } from '@/types';
+import { bookingsApi } from '@/utils/api';
+import { isSessionExpiredError } from '@/utils/auth';
+import { ApiError } from '@/utils/errors';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Alert,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    RefreshControl,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-interface Booking {
-  id: string;
-  locationName: string;
-  address: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  duration: string;
-  price: string;
-  status: 'active' | 'completed' | 'cancelled' | 'upcoming';
-  spotNumber: string;
-  bookingReference: string;
-}
+// Remove the local Booking interface since we're importing it from types
 
 export default function BookingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<'current' | 'history'>('current');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentBookings, setCurrentBookings] = useState<Booking[]>([]);
+  const [historyBookings, setHistoryBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    loadBookings();
+  }, []);
+
+  const loadBookings = async () => {
+    try {
+      setLoading(true);
+      
+      // Load current bookings (active and upcoming)
+      const currentResponse = await bookingsApi.getCurrentBookings(0, 50);
+      setCurrentBookings(currentResponse.content || []);
+      
+      // Load booking history (completed and cancelled)
+      const historyResponse = await bookingsApi.getBookingHistory(0, 50);
+      setHistoryBookings(historyResponse.content || []);
+      
+    } catch (error) {
+      if (isSessionExpiredError(error)) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
+      } else if (error instanceof ApiError) {
+        Alert.alert('Error', `Failed to load bookings: ${error.message}`);
+      } else {
+        Alert.alert('Error', 'Failed to load bookings. Please try again.');
+      }
+      // Set empty arrays on error
+      setCurrentBookings([]);
+      setHistoryBookings([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadBookings();
+  };
 
   const handleNavigation = (key: 'home' | 'search' | 'available' | 'bookings' | 'profile') => {
     if (key === 'bookings') return; // Already on bookings
@@ -45,142 +90,175 @@ export default function BookingsScreen() {
     else if (key === 'profile') router.push('/profile');
   };
 
-  // Dummy booking data
-  const bookings: Booking[] = [
-    {
-      id: '1',
-      locationName: 'City Center Garage',
-      address: '123 Main St, Downtown',
-      date: 'Today',
-      startTime: '2:30 PM',
-      endTime: '4:30 PM',
-      duration: '2 hours',
-      price: '$5.00',
-      status: 'active',
-      spotNumber: 'A-12',
-      bookingReference: 'PCK001234'
-    },
-    {
-      id: '2',
-      locationName: 'Mall Parking West',
-      address: '456 Shopping Blvd',
-      date: 'Tomorrow',
-      startTime: '10:00 AM',
-      endTime: '2:00 PM',
-      duration: '4 hours',
-      price: '$12.00',
-      status: 'upcoming',
-      spotNumber: 'B-07',
-      bookingReference: 'PCK001235'
-    },
-    {
-      id: '3',
-      locationName: 'Riverside Lot A',
-      address: '789 River Ave',
-      date: 'Sep 8',
-      startTime: '9:00 AM',
-      endTime: '11:00 AM',
-      duration: '2 hours',
-      price: '$3.60',
-      status: 'completed',
-      spotNumber: 'C-23',
-      bookingReference: 'PCK001230'
-    },
-    {
-      id: '4',
-      locationName: 'Underground C-12',
-      address: '321 Business District',
-      date: 'Sep 5',
-      startTime: '1:00 PM',
-      endTime: '5:00 PM',
-      duration: '4 hours',
-      price: '$8.80',
-      status: 'completed',
-      spotNumber: 'D-15',
-      bookingReference: 'PCK001228'
-    },
-    {
-      id: '5',
-      locationName: 'Street Parking Zone',
-      address: '654 Central Park',
-      date: 'Sep 3',
-      startTime: '11:30 AM',
-      endTime: '12:30 PM',
-      duration: '1 hour',
-      price: '$1.00',
-      status: 'cancelled',
-      spotNumber: 'E-02',
-      bookingReference: 'PCK001225'
-    }
-  ];
-
-  const currentBookings = bookings.filter(b => {
-    const matchesStatus = b.status === 'active' || b.status === 'upcoming';
-    if (!matchesStatus) return false;
+  // Filter bookings based on search query
+  const filteredCurrentBookings = currentBookings.filter(booking => {
+    if (!searchQuery.trim()) return true;
     
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      return b.locationName.toLowerCase().includes(query) ||
-             b.address.toLowerCase().includes(query) ||
-             b.spotNumber.toLowerCase().includes(query) ||
-             b.bookingReference.toLowerCase().includes(query);
-    }
-    return true;
+    const query = searchQuery.toLowerCase();
+    return booking.parkingLotName.toLowerCase().includes(query) ||
+           booking.parkingLotAddress.toLowerCase().includes(query) ||
+           booking.parkingSpaceLabel.toLowerCase().includes(query) ||
+           booking.bookingReference.toLowerCase().includes(query);
   });
   
-  const historyBookings = bookings.filter(b => {
-    const matchesStatus = b.status === 'completed' || b.status === 'cancelled';
-    if (!matchesStatus) return false;
+  const filteredHistoryBookings = historyBookings.filter(booking => {
+    if (!searchQuery.trim()) return true;
     
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      return b.locationName.toLowerCase().includes(query) ||
-             b.address.toLowerCase().includes(query) ||
-             b.spotNumber.toLowerCase().includes(query) ||
-             b.bookingReference.toLowerCase().includes(query);
-    }
-    return true;
+    const query = searchQuery.toLowerCase();
+    return booking.parkingLotName.toLowerCase().includes(query) ||
+           booking.parkingLotAddress.toLowerCase().includes(query) ||
+           booking.parkingSpaceLabel.toLowerCase().includes(query) ||
+           booking.bookingReference.toLowerCase().includes(query);
   });
 
   const getStatusColor = (status: Booking['status']) => {
     switch (status) {
-      case 'active': return '#00C851';
-      case 'upcoming': return colors.primary;
-      case 'completed': return colors.textSecondary;
-      case 'cancelled': return '#FF4444';
+      case 'ACTIVE': return '#00C851';
+      case 'CONFIRMED': return colors.primary;
+      case 'PENDING': return '#FF9800';
+      case 'COMPLETED': return colors.textSecondary;
+      case 'CANCELLED': return '#FF4444';
       default: return colors.textSecondary;
     }
   };
 
   const getStatusText = (status: Booking['status']) => {
     switch (status) {
-      case 'active': return 'Active';
-      case 'upcoming': return 'Upcoming';
-      case 'completed': return 'Completed';
-      case 'cancelled': return 'Cancelled';
+      case 'ACTIVE': return 'Active';
+      case 'CONFIRMED': return 'Confirmed';
+      case 'PENDING': return 'Pending';
+      case 'COMPLETED': return 'Completed';
+      case 'CANCELLED': return 'Cancelled';
       default: return status;
     }
   };
 
-  const handleExtendBooking = (booking: Booking) => {
+  const formatBookingDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 1) return 'Today';
+    if (diffDays === 2) return 'Tomorrow';
+    if (diffDays <= 7) return `${diffDays - 1} days ago`;
+    return date.toLocaleDateString();
+  };
+
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleTimeString('en-US', { 
+      hour: 'numeric', 
+      minute: '2-digit',
+      hour12: true 
+    });
+  };
+
+  const calculateDuration = (startTime: string, endTime: string) => {
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const diffMs = end.getTime() - start.getTime();
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
+  };
+
+  const handleExtendBooking = async (booking: Booking) => {
     Alert.alert(
       'Extend Booking',
-      `Extend parking at ${booking.locationName}?`,
+      `Extend parking at ${booking.parkingLotName}?`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Extend +1 Hour', onPress: () => Alert.alert('Success', 'Booking extended by 1 hour') },
-        { text: 'Extend +2 Hours', onPress: () => Alert.alert('Success', 'Booking extended by 2 hours') }
+        { 
+          text: 'Extend +1 Hour', 
+          onPress: async () => {
+            try {
+              const newEndTime = new Date(booking.endTime);
+              newEndTime.setHours(newEndTime.getHours() + 1);
+              await bookingsApi.extendBooking(booking.id, newEndTime.toISOString());
+              Alert.alert('Success', 'Booking extended by 1 hour');
+              loadBookings(); // Refresh the list
+            } catch (error) {
+              if (isSessionExpiredError(error)) {
+                Alert.alert(
+                  'Session Expired',
+                  'Your session has expired. Please login again.',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => router.replace('/login')
+                    }
+                  ]
+                );
+              } else {
+                Alert.alert('Error', 'Failed to extend booking. Please try again.');
+              }
+            }
+          }
+        },
+        { 
+          text: 'Extend +2 Hours', 
+          onPress: async () => {
+            try {
+              const newEndTime = new Date(booking.endTime);
+              newEndTime.setHours(newEndTime.getHours() + 2);
+              await bookingsApi.extendBooking(booking.id, newEndTime.toISOString());
+              Alert.alert('Success', 'Booking extended by 2 hours');
+              loadBookings(); // Refresh the list
+            } catch (error) {
+              if (isSessionExpiredError(error)) {
+                Alert.alert(
+                  'Session Expired',
+                  'Your session has expired. Please login again.',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => router.replace('/login')
+                    }
+                  ]
+                );
+              } else {
+                Alert.alert('Error', 'Failed to extend booking. Please try again.');
+              }
+            }
+          }
+        }
       ]
     );
   };
 
-  const handleCancelBooking = (booking: Booking) => {
+  const handleCancelBooking = async (booking: Booking) => {
     Alert.alert(
       'Cancel Booking',
-      `Are you sure you want to cancel your booking at ${booking.locationName}?`,
+      `Are you sure you want to cancel your booking at ${booking.parkingLotName}?`,
       [
         { text: 'No', style: 'cancel' },
-        { text: 'Yes, Cancel', style: 'destructive', onPress: () => Alert.alert('Cancelled', 'Your booking has been cancelled') }
+        { 
+          text: 'Yes, Cancel', 
+          style: 'destructive', 
+          onPress: async () => {
+            try {
+              await bookingsApi.cancelBooking(booking.id);
+              Alert.alert('Cancelled', 'Your booking has been cancelled');
+              loadBookings(); // Refresh the list
+            } catch (error) {
+              if (isSessionExpiredError(error)) {
+                Alert.alert(
+                  'Session Expired',
+                  'Your session has expired. Please login again.',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => router.replace('/login')
+                    }
+                  ]
+                );
+              } else {
+                Alert.alert('Error', 'Failed to cancel booking. Please try again.');
+              }
+            }
+          }
+        }
       ]
     );
   };
@@ -194,8 +272,8 @@ export default function BookingsScreen() {
     >
       <View style={styles.bookingHeader}>
         <View style={styles.bookingInfo}>
-          <Text style={styles.locationName}>{booking.locationName}</Text>
-          <Text style={styles.address}>{booking.address}</Text>
+          <Text style={styles.locationName}>{booking.parkingLotName}</Text>
+          <Text style={styles.address}>{booking.parkingLotAddress}</Text>
         </View>
         <View style={[styles.statusBadge, { backgroundColor: getStatusColor(booking.status) }]}>
           <Text style={styles.statusText}>{getStatusText(booking.status)}</Text>
@@ -205,15 +283,15 @@ export default function BookingsScreen() {
       <View style={styles.bookingDetails}>
         <View style={styles.detailRow}>
           <MaterialIcons name="calendar-today" size={16} color={colors.textSecondary} />
-          <Text style={styles.detailText}>{booking.date}</Text>
+          <Text style={styles.detailText}>{formatBookingDate(booking.startTime)}</Text>
         </View>
         <View style={styles.detailRow}>
           <MaterialIcons name="access-time" size={16} color={colors.textSecondary} />
-          <Text style={styles.detailText}>{booking.startTime} - {booking.endTime}</Text>
+          <Text style={styles.detailText}>{formatTime(booking.startTime)} - {formatTime(booking.endTime)}</Text>
         </View>
         <View style={styles.detailRow}>
           <MaterialIcons name="local-parking" size={16} color={colors.textSecondary} />
-          <Text style={styles.detailText}>Spot {booking.spotNumber}</Text>
+          <Text style={styles.detailText}>Spot {booking.parkingSpaceLabel}</Text>
         </View>
         <View style={styles.detailRow}>
           <MaterialIcons name="receipt" size={16} color={colors.textSecondary} />
@@ -223,11 +301,11 @@ export default function BookingsScreen() {
 
       <View style={styles.bookingFooter}>
         <View style={styles.priceContainer}>
-          <Text style={styles.duration}>{booking.duration}</Text>
-          <Text style={styles.price}>{booking.price}</Text>
+          <Text style={styles.duration}>{calculateDuration(booking.startTime, booking.endTime)}</Text>
+          <Text style={styles.price}>${booking.totalPrice}</Text>
         </View>
 
-        {booking.status === 'active' && (
+        {booking.status === 'ACTIVE' && (
           <View style={styles.actionButtons}>
             <TouchableOpacity
               style={[styles.actionButton, styles.extendButton]}
@@ -246,7 +324,7 @@ export default function BookingsScreen() {
           </View>
         )}
 
-        {booking.status === 'upcoming' && (
+        {(booking.status === 'CONFIRMED' || booking.status === 'PENDING') && (
           <View style={styles.actionButtons}>
             <TouchableOpacity
               style={[styles.actionButton, styles.cancelButton]}
@@ -258,11 +336,11 @@ export default function BookingsScreen() {
           </View>
         )}
 
-        {booking.status === 'completed' && (
+        {booking.status === 'COMPLETED' && (
           <View style={styles.actionButtons}>
             <TouchableOpacity
               style={[styles.actionButton, styles.rebookButton]}
-              onPress={() => Alert.alert('Rebook', `Rebook parking at ${booking.locationName}?`)}
+              onPress={() => Alert.alert('Rebook', `Rebook parking at ${booking.parkingLotName}?`)}
             >
               <MaterialIcons name="refresh" size={16} color={colors.primary} />
               <Text style={[styles.actionButtonText, { color: colors.primary }]}>Rebook</Text>
@@ -312,7 +390,7 @@ export default function BookingsScreen() {
           onPress={() => setActiveTab('current')}
         >
           <Text style={[styles.tabText, activeTab === 'current' && styles.activeTabText]}>
-            Current ({currentBookings.length})
+            Current ({filteredCurrentBookings.length})
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -320,7 +398,7 @@ export default function BookingsScreen() {
           onPress={() => setActiveTab('history')}
         >
           <Text style={[styles.tabText, activeTab === 'history' && styles.activeTabText]}>
-            History ({historyBookings.length})
+            History ({filteredHistoryBookings.length})
           </Text>
         </TouchableOpacity>
       </View>
@@ -329,10 +407,22 @@ export default function BookingsScreen() {
         style={styles.content}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+          />
+        }
       >
-        {activeTab === 'current' ? (
-          currentBookings.length > 0 ? (
-            currentBookings.map(renderBookingCard)
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingText}>Loading bookings...</Text>
+          </View>
+        ) : activeTab === 'current' ? (
+          filteredCurrentBookings.length > 0 ? (
+            filteredCurrentBookings.map(renderBookingCard)
           ) : (
             <View style={styles.emptyState}>
               <MaterialIcons name="event-busy" size={64} color={colors.textSecondary} />
@@ -347,8 +437,8 @@ export default function BookingsScreen() {
             </View>
           )
         ) : (
-          historyBookings.length > 0 ? (
-            historyBookings.map(renderBookingCard)
+          filteredHistoryBookings.length > 0 ? (
+            filteredHistoryBookings.map(renderBookingCard)
           ) : (
             <View style={styles.emptyState}>
               <MaterialIcons name="history" size={64} color={colors.textSecondary} />
@@ -550,6 +640,16 @@ const styles = StyleSheet.create({
   actionButtonText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    marginTop: 16,
   },
   emptyState: {
     alignItems: 'center',

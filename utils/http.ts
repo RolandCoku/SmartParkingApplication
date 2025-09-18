@@ -3,7 +3,24 @@ import { getAccessToken, logout, refreshToken } from './auth';
 
 export async function authenticatedFetch(url: string, options: any = {}) {
     let accessToken = await getAccessToken();
-    if (!accessToken) throw new Error('No access token');
+    
+    // If no access token, try to refresh first
+    if (!accessToken) {
+        try {
+            await refreshToken();
+            accessToken = await getAccessToken();
+        } catch (refreshError) {
+            authDebugError('No access token and refresh failed:', refreshError);
+            await logout();
+            throw new Error('Session expired. Please login again.');
+        }
+    }
+    
+    if (!accessToken) {
+        await logout();
+        throw new Error('Session expired. Please login again.');
+    }
+    
     options.headers = options.headers || {};
     options.headers['Authorization'] = `Bearer ${accessToken}`;
     let res = await fetch(url, options);

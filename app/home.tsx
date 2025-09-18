@@ -1,11 +1,16 @@
 import { debugError } from '@/config/debug';
 import { colors } from '@/constants/SharedStyles';
-import { getAccessToken, logout } from '@/utils/auth';
+import { Booking, ParkingLotSearchDTO } from '@/types';
+import { bookingsApi, parkingApi, userApi } from '@/utils/api';
+import { getAccessToken, isSessionExpiredError, logout } from '@/utils/auth';
+import { locationService } from '@/utils/location';
+import { fetchRatesForLots, formatRate } from '@/utils/rates';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -34,15 +39,6 @@ interface ParkingSpot {
   isAvailable: boolean;
 }
 
-interface RecentBooking {
-  id: string;
-  location: string;
-  date: string;
-  duration: string;
-  amount: string;
-  status: 'completed' | 'active' | 'cancelled';
-}
-
 const ICONS = {
   bolt: 'flash-on',
   drive: 'directions-car',
@@ -60,12 +56,17 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [authenticated, setAuthenticated] = useState(true);
-  const [user] = useState({ name: 'John Doe', firstName: 'John', lastName: 'Doe' });
+  const [user, setUser] = useState<{ name: string; firstName?: string; lastName?: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<ParkingLotSearchDTO[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showAvailableSpotsModal, setShowAvailableSpotsModal] = useState(false);
   const [showBookingsModal, setShowBookingsModal] = useState(false);
+  const [nearbyParkingLots, setNearbyParkingLots] = useState<ParkingLotSearchDTO[]>([]);
+  const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentFilter, setCurrentFilter] = useState<string>('All');
+  const [filterLoading, setFilterLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -73,6 +74,9 @@ export default function HomeScreen() {
         const token = await getAccessToken();
         if (!token) {
           router.replace('/login');
+        } else {
+          await loadUserData();
+          loadHomeData();
         }
       } catch (error) {
         debugError('Auth check failed:', error);
@@ -81,27 +85,199 @@ export default function HomeScreen() {
     })();
   }, [router]);
 
+  const loadUserData = async () => {
+    try {
+      const userData = await userApi.getCurrentUser();
+      setUser({
+        name: `${userData.firstName} ${userData.lastName}`,
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+      });
+    } catch (error) {
+      debugError('Failed to load user data:', error);
+      // Set a fallback name if user data fails to load
+      setUser({ name: 'User', firstName: 'User', lastName: '' });
+    }
+  };
+
+  const loadHomeData = async () => {
+    try {
+      setLoading(true);
+      
+      // Load nearby parking lots
+      try {
+        const userLocation = await locationService.getCurrentLocation();
+        let lots: ParkingLotSearchDTO[] = [];
+        
+        if (userLocation) {
+          const nearbyResponse = await parkingApi.findNearbyParkingLots(
+            userLocation.coords.latitude,
+            userLocation.coords.longitude,
+            5.0, // 5km radius
+            0,
+            10
+          );
+          lots = nearbyResponse.content || [];
+        } else {
+          // Fallback to available parking lots if no location
+          const availableResponse = await parkingApi.findAvailableParkingLots(0, 10);
+          lots = availableResponse.content || [];
+        }
+        
+        // Fetch rates for the parking lots
+        const lotsWithRates = await fetchRatesForLots(lots);
+        setNearbyParkingLots(lotsWithRates);
+      } catch (parkingError) {
+        debugError('Failed to load parking lots:', parkingError);
+        
+        // Check if it's a session expiry error
+        if (isSessionExpiredError(parkingError)) {
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please login again.',
+            [
+              {
+                text: 'OK',
+                onPress: () => router.replace('/login')
+              }
+            ]
+          );
+          return;
+        }
+        
+        // Try fallback to available parking lots
+        try {
+          const availableResponse = await parkingApi.findAvailableParkingLots(0, 10);
+          const lots = availableResponse.content || [];
+          const lotsWithRates = await fetchRatesForLots(lots);
+          setNearbyParkingLots(lotsWithRates);
+        } catch (fallbackError) {
+          debugError('Fallback also failed:', fallbackError);
+          if (isSessionExpiredError(fallbackError)) {
+            Alert.alert(
+              'Session Expired',
+              'Your session has expired. Please login again.',
+              [
+                {
+                  text: 'OK',
+                  onPress: () => router.replace('/login')
+                }
+              ]
+            );
+            return;
+          }
+          setNearbyParkingLots([]);
+        }
+      }
+
+      // Load recent bookings
+      try {
+        const bookingsResponse = await bookingsApi.getCurrentBookings(0, 5);
+        setRecentBookings(bookingsResponse.content || []);
+      } catch (bookingError) {
+        debugError('Failed to load bookings:', bookingError);
+        if (isSessionExpiredError(bookingError)) {
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please login again.',
+            [
+              {
+                text: 'OK',
+                onPress: () => router.replace('/login')
+              }
+            ]
+          );
+          return;
+        }
+        setRecentBookings([]);
+      }
+      
+    } catch (error) {
+      debugError('Failed to load home data:', error);
+      // Set empty arrays on error
+      setNearbyParkingLots([]);
+      setRecentBookings([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLogout = async () => {
     await logout();
     router.replace('/login');
   };
 
   const handleSearch = async (query: string) => {
-    if (!query.trim()) return;
+    if (!query.trim()) {
+      setSearchResults([]);
+      setSearchQuery('');
+      return;
+    }
     
     setIsSearching(true);
     setSearchQuery(query);
     
-    // Simulate API call
-    setTimeout(() => {
-      const mockResults = [
-        { id: 'search-1', title: 'Downtown Garage', distance: '0.2 km', price: '$3.0/hr', spots: 8, rating: 4.6, features: ['Covered', 'EV Charging'], isFavorite: false, isAvailable: true },
-        { id: 'search-2', title: 'City Center Plaza', distance: '0.5 km', price: '$2.5/hr', spots: 15, rating: 4.4, features: ['Covered', 'Security'], isFavorite: false, isAvailable: true },
-        { id: 'search-3', title: 'Main Street Lot', distance: '0.8 km', price: '$1.8/hr', spots: 12, rating: 4.2, features: ['24/7'], isFavorite: false, isAvailable: true },
-      ];
-      setSearchResults(mockResults);
+    try {
+      const searchResponse = await parkingApi.searchParkingLots(query, 0, 10);
+      const lots = searchResponse.content || [];
+      const lotsWithRates = await fetchRatesForLots(lots);
+      setSearchResults(lotsWithRates);
+    } catch (error) {
+      debugError('Search failed:', error);
+      if (isSessionExpiredError(error)) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
+        return;
+      }
+      setSearchResults([]);
+    } finally {
       setIsSearching(false);
-    }, 1000);
+    }
+  };
+
+  const handleFilterChange = async (filterKey: string, filters: any) => {
+    setCurrentFilter(filterKey);
+    setFilterLoading(true);
+    
+    try {
+      if (filterKey === 'All') {
+        // Reload all nearby parking lots
+        await loadHomeData();
+      } else {
+        // Apply specific filter
+        const filteredResponse = await parkingApi.filterParkingLots(filters, 0, 10);
+        const lots = filteredResponse.content || [];
+        const lotsWithRates = await fetchRatesForLots(lots);
+        setNearbyParkingLots(lotsWithRates);
+      }
+    } catch (error) {
+      debugError('Filter failed:', error);
+      if (isSessionExpiredError(error)) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
+        return;
+      }
+      // On filter error, fallback to showing all lots
+      await loadHomeData();
+    } finally {
+      setFilterLoading(false);
+    }
   };
 
   if (!authenticated) return null;
@@ -114,11 +290,11 @@ export default function HomeScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <View style={[styles.page, { paddingTop: insets.top }]}>
-          <Header onLogout={handleLogout} user={user} router={router} />
+          <Header onLogout={handleLogout} user={user || { name: 'Loading...', firstName: 'Loading', lastName: '' }} router={router} />
 
           <View style={styles.searchSection}>
             <SearchBar onSearch={handleSearch} />
-            <FilterChips />
+            <FilterChips onFilterChange={handleFilterChange} />
           </View>
 
           <ScrollView
@@ -136,15 +312,22 @@ export default function HomeScreen() {
               />
             ) : (
               <>
-                <MapSection />
+                <MapSection 
+                  parkingLots={nearbyParkingLots}
+                  loading={loading || filterLoading}
+                />
                 <ParkingSpots 
                   onExplore={() => setShowAvailableSpotsModal(true)} 
                   onSpotPress={(spot) => router.push('/parking-details')}
                   onBookNow={() => router.push('/booking')}
+                  parkingLots={nearbyParkingLots}
+                  loading={loading || filterLoading}
                 />
                 <RecentBookings 
                   onSeeAll={() => setShowBookingsModal(true)}
                   onBookingPress={(booking) => router.push(`/booking-details?bookingId=${booking.id}`)}
+                  bookings={recentBookings}
+                  loading={loading}
                 />
               </>
             )}
@@ -188,7 +371,10 @@ export default function HomeScreen() {
             contentContainerStyle={[modalStyles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
             showsVerticalScrollIndicator={false}
           >
-            <AvailableSpotsModalContent />
+            <AvailableSpotsModalContent 
+              parkingLots={nearbyParkingLots}
+              loading={loading || filterLoading}
+            />
           </ScrollView>
         </View>
       </Modal>
@@ -217,10 +403,14 @@ export default function HomeScreen() {
             contentContainerStyle={[modalStyles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
             showsVerticalScrollIndicator={false}
           >
-            <BookingsModalContent onBookingPress={(booking) => {
-              setShowBookingsModal(false);
-              router.push(`/booking-details?bookingId=${booking.id}`);
-            }} />
+            <BookingsModalContent 
+              bookings={recentBookings}
+              loading={loading}
+              onBookingPress={(booking) => {
+                setShowBookingsModal(false);
+                router.push(`/booking-details?bookingId=${booking.id}`);
+              }} 
+            />
           </ScrollView>
         </View>
       </Modal>
@@ -337,16 +527,32 @@ const searchStyles = StyleSheet.create({
 });
 
 // Filter chips row
-function FilterChips() {
-  const [selected, setSelected] = useState<string>('Nearby');
-  const chips = useMemo(() => ['Nearby', 'Cheapest', 'Covered', 'EV', '24/7'], []);
+function FilterChips({ onFilterChange }: { onFilterChange: (filter: string, filters: any) => void }) {
+  const [selected, setSelected] = useState<string>('All');
+  const chips = useMemo(() => [
+    { key: 'All', label: 'All', filters: {} },
+    { key: 'EV', label: 'EV Charging', filters: { hasChargingStations: true } },
+    { key: 'Covered', label: 'Covered', filters: { covered: true } },
+    { key: 'Security', label: 'Security', filters: { hasCctv: true } },
+    { key: 'Disabled', label: 'Disabled Access', filters: { hasDisabledAccess: true } },
+  ], []);
+
+  const handleFilterPress = (chip: typeof chips[0]) => {
+    setSelected(chip.key);
+    onFilterChange(chip.key, chip.filters);
+  };
+
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={chipStyles.container}>
       {chips.map((chip) => {
-        const active = selected === chip;
+        const active = selected === chip.key;
         return (
-          <TouchableOpacity key={chip} onPress={() => setSelected(chip)} style={[chipStyles.chip, active && chipStyles.chipActive]}>
-            <Text style={[chipStyles.chipText, active && chipStyles.chipTextActive]}>{chip}</Text>
+          <TouchableOpacity 
+            key={chip.key} 
+            onPress={() => handleFilterPress(chip)} 
+            style={[chipStyles.chip, active && chipStyles.chipActive]}
+          >
+            <Text style={[chipStyles.chipText, active && chipStyles.chipTextActive]}>{chip.label}</Text>
           </TouchableOpacity>
         );
       })}
@@ -363,19 +569,40 @@ const chipStyles = StyleSheet.create({
 });
 
 // Separate Parking Spots section
-function ParkingSpots({ onExplore, onSpotPress, onBookNow }: { onExplore: () => void; onSpotPress: (spot: ParkingSpot) => void; onBookNow: () => void }) {
+function ParkingSpots({ 
+  onExplore, 
+  onSpotPress, 
+  onBookNow, 
+  parkingLots, 
+  loading 
+}: { 
+  onExplore: () => void; 
+  onSpotPress: (spot: ParkingLotSearchDTO) => void; 
+  onBookNow: () => void;
+  parkingLots: ParkingLotSearchDTO[];
+  loading: boolean;
+}) {
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [selectedFilter, setSelectedFilter] = useState<string>('All');
 
-  const items: ParkingSpot[] = useMemo(
-    () => [
-      { id: '1', title: 'City Center Garage', distance: '0.3 km', price: '$2.5/hr', spots: 12, rating: 4.8, features: ['Covered', 'Security'], isFavorite: false, isAvailable: true },
-      { id: '2', title: 'Riverside Lot A', distance: '0.8 km', price: '$1.8/hr', spots: 7, rating: 4.5, features: ['24/7', 'EV'], isFavorite: true, isAvailable: true },
-      { id: '3', title: 'Mall Parking West', distance: '1.2 km', price: '$3.0/hr', spots: 23, rating: 4.2, features: ['Covered', 'Shopping'], isFavorite: false, isAvailable: false },
-      { id: '4', title: 'Underground C-12', distance: '1.6 km', price: '$2.2/hr', spots: 4, rating: 4.7, features: ['Covered', 'Security', 'EV'], isFavorite: false, isAvailable: true },
-    ],
-    []
-  );
+  const items: ParkingSpot[] = useMemo(() => {
+    return parkingLots.map(lot => ({
+      id: lot.id.toString(),
+      title: lot.name,
+      distance: lot.distanceKm ? `${lot.distanceKm.toFixed(1)} km` : 'N/A',
+      price: formatRate((lot as any).hourlyRate), // Use real rate from API
+      spots: lot.availableSpaces,
+      rating: lot.averageRating || 4.0,
+      features: [
+        ...(lot.hasChargingStations ? ['EV Charging'] : []),
+        ...(lot.covered ? ['Covered'] : []),
+        ...(lot.hasCctv ? ['Security'] : []),
+        ...(lot.hasDisabledAccess ? ['Disabled Access'] : []),
+      ],
+      isFavorite: favorites.has(lot.id.toString()),
+      isAvailable: lot.availableSpaces > 0,
+    }));
+  }, [parkingLots, favorites]);
 
   const toggleFavorite = (id: string) => {
     setFavorites(prev => {
@@ -389,14 +616,14 @@ function ParkingSpots({ onExplore, onSpotPress, onBookNow }: { onExplore: () => 
     });
   };
 
-  const filters = ['All', 'Favorites', 'EV Charging', 'Covered', '24/7'];
+  const filters = ['All', 'Favorites', 'EV Charging', 'Covered', 'Security'];
 
   const filteredItems = items.filter(item => {
     if (selectedFilter === 'All') return true;
     if (selectedFilter === 'Favorites') return favorites.has(item.id);
-    if (selectedFilter === 'EV Charging') return item.features.includes('EV');
+    if (selectedFilter === 'EV Charging') return item.features.includes('EV Charging');
     if (selectedFilter === 'Covered') return item.features.includes('Covered');
-    if (selectedFilter === '24/7') return item.features.includes('24/7');
+    if (selectedFilter === 'Security') return item.features.includes('Security');
     return true;
   });
 
@@ -426,13 +653,18 @@ function ParkingSpots({ onExplore, onSpotPress, onBookNow }: { onExplore: () => 
         </ScrollView>
       </View>
 
-      {filteredItems.length > 0 ? (
+      {loading ? (
+        <View style={spotsStyles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={spotsStyles.loadingText}>Loading parking spots...</Text>
+        </View>
+      ) : filteredItems.length > 0 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={spotsStyles.content}>
           {filteredItems.map((item) => (
           <TouchableOpacity
             key={item.id}
             style={[spotsStyles.card, !item.isAvailable && spotsStyles.cardUnavailable]}
-            onPress={() => onSpotPress(item)}
+            onPress={() => onSpotPress(parkingLots.find(lot => lot.id.toString() === item.id)!)}
             activeOpacity={0.8}
           >
             <View style={spotsStyles.cardHeader}>
@@ -750,6 +982,17 @@ const spotsStyles = StyleSheet.create({
     fontWeight: '700',
   },
   content: { paddingHorizontal: 16 },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+  },
+  loadingText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    marginTop: 16,
+  },
   emptyStateContainer: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -793,20 +1036,48 @@ const spotsStyles = StyleSheet.create({
 });
 
 // Recent Bookings section
-function RecentBookings({ onSeeAll, onBookingPress }: { onSeeAll: () => void; onBookingPress?: (booking: RecentBooking) => void }) {
-  const bookings: RecentBooking[] = [
-    { id: '1', location: 'City Center Garage', date: 'Today', duration: '2h 30m', amount: '$7.50', status: 'active' },
-    { id: '2', location: 'Mall Parking West', date: 'Yesterday', duration: '1h 45m', amount: '$5.25', status: 'completed' },
-    { id: '3', location: 'Riverside Lot A', date: '2 days ago', duration: '3h 15m', amount: '$5.85', status: 'completed' },
-  ];
+function RecentBookings({ 
+  onSeeAll, 
+  onBookingPress, 
+  bookings, 
+  loading 
+}: { 
+  onSeeAll: () => void; 
+  onBookingPress?: (booking: Booking) => void;
+  bookings: Booking[];
+  loading: boolean;
+}) {
 
-  const getStatusColor = (status: RecentBooking['status']) => {
+  const getStatusColor = (status: Booking['status']) => {
     switch (status) {
-      case 'active': return '#4CAF50';
-      case 'completed': return colors.textSecondary;
-      case 'cancelled': return '#FF4444';
+      case 'ACTIVE': return '#4CAF50';
+      case 'COMPLETED': return colors.textSecondary;
+      case 'CANCELLED': return '#FF4444';
+      case 'CONFIRMED': return '#2196F3';
+      case 'PENDING': return '#FF9800';
       default: return colors.textSecondary;
     }
+  };
+
+  const formatBookingDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 1) return 'Today';
+    if (diffDays === 2) return 'Yesterday';
+    if (diffDays <= 7) return `${diffDays - 1} days ago`;
+    return date.toLocaleDateString();
+  };
+
+  const calculateDuration = (startTime: string, endTime: string) => {
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const diffMs = end.getTime() - start.getTime();
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
   };
 
   return (
@@ -817,7 +1088,13 @@ function RecentBookings({ onSeeAll, onBookingPress }: { onSeeAll: () => void; on
           <Text style={bookingsStyles.seeAll}>See All</Text>
         </TouchableOpacity>
       </View>
-      {bookings.map((booking) => (
+      {loading ? (
+        <View style={bookingsStyles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={bookingsStyles.loadingText}>Loading bookings...</Text>
+        </View>
+      ) : bookings.length > 0 ? (
+        bookings.map((booking) => (
         <TouchableOpacity 
           key={booking.id} 
           style={bookingsStyles.bookingCard}
@@ -825,18 +1102,25 @@ function RecentBookings({ onSeeAll, onBookingPress }: { onSeeAll: () => void; on
           activeOpacity={0.7}
         >
           <View style={bookingsStyles.bookingHeader}>
-            <Text style={bookingsStyles.bookingLocation}>{booking.location}</Text>
+              <Text style={bookingsStyles.bookingLocation}>{booking.parkingLotName}</Text>
             <Text style={[bookingsStyles.bookingStatus, { color: getStatusColor(booking.status) }]}>
-              {booking.status.toUpperCase()}
+                {booking.status}
             </Text>
           </View>
           <View style={bookingsStyles.bookingDetails}>
-            <Text style={bookingsStyles.bookingDate}>{booking.date}</Text>
-            <Text style={bookingsStyles.bookingDuration}>{booking.duration}</Text>
-            <Text style={bookingsStyles.bookingAmount}>{booking.amount}</Text>
+              <Text style={bookingsStyles.bookingDate}>{formatBookingDate(booking.startTime)}</Text>
+              <Text style={bookingsStyles.bookingDuration}>{calculateDuration(booking.startTime, booking.endTime)}</Text>
+              <Text style={bookingsStyles.bookingAmount}>${booking.totalPrice}</Text>
           </View>
         </TouchableOpacity>
-      ))}
+        ))
+      ) : (
+        <View style={bookingsStyles.emptyContainer}>
+          <MaterialIcons name="receipt" size={48} color={colors.textSecondary} />
+          <Text style={bookingsStyles.emptyTitle}>No Recent Bookings</Text>
+          <Text style={bookingsStyles.emptySubtitle}>Your recent bookings will appear here</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -846,6 +1130,33 @@ const bookingsStyles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   title: { color: colors.text, fontSize: 18, fontWeight: '800' },
   seeAll: { color: colors.primary, fontSize: 14, fontWeight: '600' },
+  loadingContainer: { 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    paddingVertical: 40 
+  },
+  loadingText: { 
+    color: colors.textSecondary, 
+    fontSize: 16, 
+    marginTop: 16 
+  },
+  emptyContainer: { 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    paddingVertical: 40 
+  },
+  emptyTitle: { 
+    color: colors.text, 
+    fontSize: 18, 
+    fontWeight: '700', 
+    marginTop: 16, 
+    marginBottom: 8 
+  },
+  emptySubtitle: { 
+    color: colors.textSecondary, 
+    fontSize: 14, 
+    textAlign: 'center' 
+  },
   bookingCard: { backgroundColor: colors.surface, borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
   bookingHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   bookingLocation: { color: colors.text, fontSize: 16, fontWeight: '700' },
@@ -857,20 +1168,27 @@ const bookingsStyles = StyleSheet.create({
 });
 
 // Modal Content Components
-function AvailableSpotsModalContent() {
+function AvailableSpotsModalContent({ parkingLots, loading }: { parkingLots: ParkingLotSearchDTO[]; loading: boolean }) {
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
 
-  const items: ParkingSpot[] = useMemo(
-    () => [
-      { id: '1', title: 'City Center Garage', distance: '0.3 km', price: '$2.5/hr', spots: 12, rating: 4.8, features: ['Covered', 'Security'], isFavorite: false, isAvailable: true },
-      { id: '2', title: 'Riverside Lot A', distance: '0.8 km', price: '$1.8/hr', spots: 7, rating: 4.5, features: ['24/7', 'EV'], isFavorite: true, isAvailable: true },
-      { id: '3', title: 'Mall Parking West', distance: '1.2 km', price: '$3.0/hr', spots: 23, rating: 4.2, features: ['Covered', 'Shopping'], isFavorite: false, isAvailable: false },
-      { id: '4', title: 'Underground C-12', distance: '1.6 km', price: '$2.2/hr', spots: 4, rating: 4.7, features: ['Covered', 'Security', 'EV'], isFavorite: false, isAvailable: true },
-      { id: '5', title: 'Downtown Plaza', distance: '0.5 km', price: '$2.8/hr', spots: 15, rating: 4.6, features: ['Covered', 'Security'], isFavorite: false, isAvailable: true },
-      { id: '6', title: 'Main Street Lot', distance: '1.0 km', price: '$1.5/hr', spots: 8, rating: 4.3, features: ['24/7'], isFavorite: false, isAvailable: true },
-    ],
-    []
-  );
+  const items: ParkingSpot[] = useMemo(() => {
+    return parkingLots.map(lot => ({
+      id: lot.id.toString(),
+      title: lot.name,
+      distance: lot.distanceKm ? `${lot.distanceKm.toFixed(1)} km` : 'N/A',
+      price: formatRate((lot as any).hourlyRate), // Use real rate from API
+      spots: lot.availableSpaces,
+      rating: lot.averageRating || 4.0,
+      features: [
+        ...(lot.hasChargingStations ? ['EV Charging'] : []),
+        ...(lot.covered ? ['Covered'] : []),
+        ...(lot.hasCctv ? ['Security'] : []),
+        ...(lot.hasDisabledAccess ? ['Disabled Access'] : []),
+      ],
+      isFavorite: favorites.has(lot.id.toString()),
+      isAvailable: lot.availableSpaces > 0,
+    }));
+  }, [parkingLots, favorites]);
 
   const toggleFavorite = (id: string) => {
     setFavorites(prev => {
@@ -884,21 +1202,46 @@ function AvailableSpotsModalContent() {
     });
   };
 
+  if (loading) {
+    return (
+      <View style={modalContentStyles.container}>
+        <View style={modalContentStyles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={modalContentStyles.loadingText}>Loading available spots...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <View style={modalContentStyles.container}>
+        <View style={modalContentStyles.emptyContainer}>
+          <MaterialIcons name="local-parking" size={64} color={colors.textSecondary} />
+          <Text style={modalContentStyles.emptyTitle}>No Available Spots</Text>
+          <Text style={modalContentStyles.emptySubtitle}>
+            No parking spots are currently available. Try adjusting your filters or check back later.
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={modalContentStyles.container}>
       <View style={modalContentStyles.statsContainer}>
         <View style={modalContentStyles.statItem}>
-          <Text style={modalContentStyles.statValue}>{items.length}</Text>
+          <Text style={modalContentStyles.statValue}>{parkingLots.reduce((sum, lot) => sum + lot.capacity, 0)}</Text>
           <Text style={modalContentStyles.statLabel}>Total Spots</Text>
         </View>
         <View style={modalContentStyles.statDivider} />
         <View style={modalContentStyles.statItem}>
-          <Text style={modalContentStyles.statValue}>{items.filter(item => item.isAvailable).length}</Text>
+          <Text style={modalContentStyles.statValue}>{parkingLots.reduce((sum, lot) => sum + lot.availableSpaces, 0)}</Text>
           <Text style={modalContentStyles.statLabel}>Available</Text>
         </View>
         <View style={modalContentStyles.statDivider} />
         <View style={modalContentStyles.statItem}>
-          <Text style={modalContentStyles.statValue}>{items.filter(item => item.features.includes('EV')).length}</Text>
+          <Text style={modalContentStyles.statValue}>{parkingLots.filter(lot => lot.hasChargingStations).length}</Text>
           <Text style={modalContentStyles.statLabel}>EV Charging</Text>
         </View>
       </View>
@@ -954,23 +1297,52 @@ function AvailableSpotsModalContent() {
   );
 }
 
-function BookingsModalContent({ onBookingPress }: { onBookingPress?: (booking: RecentBooking) => void }) {
-  const bookings: RecentBooking[] = [
-    { id: '1', location: 'City Center Garage', date: 'Today', duration: '2h 30m', amount: '$7.50', status: 'active' },
-    { id: '2', location: 'Mall Parking West', date: 'Yesterday', duration: '1h 45m', amount: '$5.25', status: 'completed' },
-    { id: '3', location: 'Riverside Lot A', date: '2 days ago', duration: '3h 15m', amount: '$5.85', status: 'completed' },
-    { id: '4', location: 'Downtown Plaza', date: '3 days ago', duration: '1h 20m', amount: '$3.36', status: 'completed' },
-    { id: '5', location: 'Main Street Lot', date: '1 week ago', duration: '4h 10m', amount: '$6.15', status: 'completed' },
-  ];
+function BookingsModalContent({ bookings, loading, onBookingPress }: { bookings: Booking[]; loading: boolean; onBookingPress?: (booking: Booking) => void }) {
 
-  const getStatusColor = (status: RecentBooking['status']) => {
+  const getStatusColor = (status: Booking['status']) => {
     switch (status) {
-      case 'active': return '#4CAF50';
-      case 'completed': return colors.textSecondary;
-      case 'cancelled': return '#FF4444';
+      case 'ACTIVE': return '#4CAF50';
+      case 'COMPLETED': return colors.textSecondary;
+      case 'CANCELLED': return '#FF4444';
+      case 'CONFIRMED': return '#2196F3';
+      case 'PENDING': return '#FF9800';
       default: return colors.textSecondary;
     }
   };
+
+  const calculateDuration = (startTime: string, endTime: string) => {
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const diffMs = end.getTime() - start.getTime();
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
+  };
+
+  if (loading) {
+    return (
+      <View style={modalContentStyles.container}>
+        <View style={modalContentStyles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={modalContentStyles.loadingText}>Loading bookings...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (bookings.length === 0) {
+    return (
+      <View style={modalContentStyles.container}>
+        <View style={modalContentStyles.emptyContainer}>
+          <MaterialIcons name="receipt" size={64} color={colors.textSecondary} />
+          <Text style={modalContentStyles.emptyTitle}>No Recent Bookings</Text>
+          <Text style={modalContentStyles.emptySubtitle}>
+            Your recent bookings will appear here when you make a reservation.
+          </Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={modalContentStyles.container}>
@@ -981,12 +1353,12 @@ function BookingsModalContent({ onBookingPress }: { onBookingPress?: (booking: R
         </View>
         <View style={modalContentStyles.statDivider} />
         <View style={modalContentStyles.statItem}>
-          <Text style={modalContentStyles.statValue}>{bookings.filter(b => b.status === 'active').length}</Text>
+          <Text style={modalContentStyles.statValue}>{bookings.filter(b => b.status === 'ACTIVE').length}</Text>
           <Text style={modalContentStyles.statLabel}>Active</Text>
         </View>
         <View style={modalContentStyles.statDivider} />
         <View style={modalContentStyles.statItem}>
-          <Text style={modalContentStyles.statValue}>{bookings.filter(b => b.status === 'completed').length}</Text>
+          <Text style={modalContentStyles.statValue}>{bookings.filter(b => b.status === 'COMPLETED').length}</Text>
           <Text style={modalContentStyles.statLabel}>Completed</Text>
         </View>
       </View>
@@ -1000,15 +1372,15 @@ function BookingsModalContent({ onBookingPress }: { onBookingPress?: (booking: R
             activeOpacity={0.7}
           >
             <View style={modalContentStyles.bookingHeader}>
-              <Text style={modalContentStyles.bookingLocation}>{booking.location}</Text>
+              <Text style={modalContentStyles.bookingLocation}>{booking.parkingLotName}</Text>
               <Text style={[modalContentStyles.bookingStatus, { color: getStatusColor(booking.status) }]}>
-                {booking.status.toUpperCase()}
+                {booking.status}
               </Text>
             </View>
             <View style={modalContentStyles.bookingDetails}>
-              <Text style={modalContentStyles.bookingDate}>{booking.date}</Text>
-              <Text style={modalContentStyles.bookingDuration}>{booking.duration}</Text>
-              <Text style={modalContentStyles.bookingAmount}>{booking.amount}</Text>
+              <Text style={modalContentStyles.bookingDate}>{new Date(booking.startTime).toLocaleDateString()}</Text>
+              <Text style={modalContentStyles.bookingDuration}>{calculateDuration(booking.startTime, booking.endTime)}</Text>
+              <Text style={modalContentStyles.bookingAmount}>${booking.totalPrice}</Text>
             </View>
           </TouchableOpacity>
         ))}
@@ -1057,6 +1429,37 @@ const modalStyles = StyleSheet.create({
 const modalContentStyles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    marginTop: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 24,
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   statsContainer: {
     flexDirection: 'row',

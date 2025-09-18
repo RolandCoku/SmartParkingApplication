@@ -1,26 +1,23 @@
 import { colors } from '@/constants/SharedStyles';
+import { ParkingLotSearchDTO } from '@/types';
 import { locationService } from '@/utils/location';
+import { formatRate } from '@/utils/rates';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import React, { useEffect, useState } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-interface ParkingLocation {
-  id: number;
-  name: string;
-  distance: string;
-  spots: number;
-  price: string;
-  latitude: number;
-  longitude: number;
-  available: boolean;
+interface MapSectionProps {
+  parkingLots: ParkingLotSearchDTO[];
+  loading?: boolean;
 }
 
-export default function MapSection() {
+export default function MapSection({ parkingLots, loading = false }: MapSectionProps) {
   const [selectedMarker, setSelectedMarker] = useState<number | null>(null);
   const [fullScreenMap, setFullScreenMap] = useState(false);
   const [userLocation, setUserLocation] = useState<{latitude: number; longitude: number} | null>(null);
+  const [locationLoading, setLocationLoading] = useState(true);
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
@@ -28,75 +25,40 @@ export default function MapSection() {
   }, []);
 
   const loadUserLocation = async () => {
-    const location = await locationService.getCurrentLocation();
-    if (location) {
-      setUserLocation({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      });
+    try {
+      setLocationLoading(true);
+      const location = await locationService.getCurrentLocation();
+      if (location) {
+        setUserLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to get user location:', error);
+    } finally {
+      setLocationLoading(false);
     }
   };
 
-  // Dummy parking locations around a central area (using coordinates around Times Square, NYC as example)
-  const parkingLocations: ParkingLocation[] = [
-    {
-      id: 1,
-      name: 'City Center Garage',
-      distance: '0.3 km',
-      spots: 12,
-      price: '$2.5/hr',
-      latitude: 40.7580,
-      longitude: -73.9855,
-      available: true
-    },
-    {
-      id: 2,
-      name: 'Mall Parking West',
-      distance: '1.2 km',
-      spots: 0,
-      price: '$3.0/hr',
-      latitude: 40.7614,
-      longitude: -73.9776,
-      available: false
-    },
-    {
-      id: 3,
-      name: 'Riverside Lot A',
-      distance: '0.8 km',
-      spots: 7,
-      price: '$1.8/hr',
-      latitude: 40.7505,
-      longitude: -73.9934,
-      available: true
-    },
-    {
-      id: 4,
-      name: 'Underground C-12',
-      distance: '1.6 km',
-      spots: 4,
-      price: '$2.2/hr',
-      latitude: 40.7589,
-      longitude: -73.9851,
-      available: true
-    },
-    {
-      id: 5,
-      name: 'Street Parking Zone',
-      distance: '0.5 km',
-      spots: 0,
-      price: '$1.0/hr',
-      latitude: 40.7527,
-      longitude: -73.9772,
-      available: false
-    },
-  ];
+  // Convert parking lots to map markers
+  const parkingLocations = parkingLots.map(lot => ({
+    id: lot.id,
+    name: lot.name,
+    distance: lot.distanceKm ? `${lot.distanceKm.toFixed(1)} km` : 'N/A',
+    spots: lot.availableSpaces,
+    price: formatRate((lot as any).hourlyRate), // Use real rate from API
+    latitude: lot.latitude,
+    longitude: lot.longitude,
+    available: lot.availableSpaces > 0
+  }));
 
-  // Center of the map (use user location if available, otherwise default)
+  // Center of the map (prioritize user location, then parking lots, then default)
   const mapRegion = {
-    latitude: userLocation?.latitude || 40.7580,
-    longitude: userLocation?.longitude || -73.9855,
-    latitudeDelta: 0.02,
-    longitudeDelta: 0.02,
+    latitude: userLocation?.latitude || (parkingLots.length > 0 ? parkingLots[0].latitude : 40.7580),
+    longitude: userLocation?.longitude || (parkingLots.length > 0 ? parkingLots[0].longitude : -73.9855),
+    latitudeDelta: userLocation ? 0.01 : 0.02, // Tighter zoom when user location is available
+    longitudeDelta: userLocation ? 0.01 : 0.02,
   };
 
   const availableSpots = parkingLocations.filter(loc => loc.available).length;
@@ -107,7 +69,9 @@ export default function MapSection() {
       <View style={styles.header}>
         <View>
           <Text style={styles.sectionTitle}>Nearby Parking</Text>
-          <Text style={styles.subtitle}>{availableSpots} available locations</Text>
+          <Text style={styles.subtitle}>
+            {loading ? 'Loading...' : locationLoading ? 'Getting your location...' : `${availableSpots} available locations`}
+          </Text>
         </View>
       </View>
 
@@ -124,9 +88,10 @@ export default function MapSection() {
           activeOpacity={0.9}
         >
           <MapView
+            key={`map-${userLocation?.latitude}-${userLocation?.longitude}`}
             style={styles.mapView}
             provider={PROVIDER_GOOGLE}
-            initialRegion={mapRegion}
+            region={mapRegion}
             showsUserLocation={true}
             showsMyLocationButton={false}
             scrollEnabled={false}
@@ -203,9 +168,10 @@ export default function MapSection() {
 
           {/* Full Screen Map */}
           <MapView
+            key={`fullscreen-map-${userLocation?.latitude}-${userLocation?.longitude}`}
             style={styles.fullScreenMap}
             provider={PROVIDER_GOOGLE}
-            initialRegion={mapRegion}
+            region={mapRegion}
             showsUserLocation={true}
             showsMyLocationButton={true}
             customMapStyle={[

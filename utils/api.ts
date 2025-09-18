@@ -1,5 +1,20 @@
 import { API_CONFIG, API_ENDPOINTS } from '@/config/api';
-import { ApiResponse, Booking, PaginatedResponse, ParkingSession, User, UserCar } from '@/types';
+import {
+  ApiResponse,
+  Booking,
+  BookingQuoteDTO,
+  BookingRegistrationDTO,
+  BookingUpdateDTO,
+  LotRateAssignmentDTO,
+  Money,
+  PaginatedResponse,
+  ParkingLotDetailDTO,
+  ParkingLotSearchDTO,
+  ParkingSession,
+  ParkingSpaceSummaryDTO,
+  User,
+  UserCar
+} from '@/types';
 import { ApiError } from './errors';
 import { authenticatedFetch } from './http';
 
@@ -91,10 +106,57 @@ export const bookingsApi = {
     return makeRequest<Booking>(`${API_ENDPOINTS.BOOKINGS}/${bookingId}`);
   },
 
+  async getBookingByReference(reference: string): Promise<Booking> {
+    return makeRequest<Booking>(`${API_ENDPOINTS.BOOKINGS}/reference/${reference}`);
+  },
+
+  async createBooking(bookingData: BookingRegistrationDTO): Promise<Booking> {
+    return makeRequest<Booking>(API_ENDPOINTS.BOOKINGS, {
+      method: 'POST',
+      body: JSON.stringify(bookingData),
+    });
+  },
+
+  async updateBooking(bookingId: number, updateData: BookingUpdateDTO): Promise<Booking> {
+    return makeRequest<Booking>(`${API_ENDPOINTS.BOOKINGS}/${bookingId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updateData),
+    });
+  },
+
   async cancelBooking(bookingId: number): Promise<Booking> {
     return makeRequest<Booking>(`${API_ENDPOINTS.BOOKINGS}/${bookingId}/cancel`, {
       method: 'POST',
     });
+  },
+
+  async startBooking(bookingId: number): Promise<Booking> {
+    return makeRequest<Booking>(`${API_ENDPOINTS.BOOKINGS}/${bookingId}/start`, {
+      method: 'POST',
+    });
+  },
+
+  async completeBooking(bookingId: number): Promise<Booking> {
+    return makeRequest<Booking>(`${API_ENDPOINTS.BOOKINGS}/${bookingId}/complete`, {
+      method: 'POST',
+    });
+  },
+
+  async extendBooking(bookingId: number, newEndTime: string): Promise<Booking> {
+    return makeRequest<Booking>(`${API_ENDPOINTS.BOOKINGS}/${bookingId}/extend?newEndTime=${newEndTime}`, {
+      method: 'POST',
+    });
+  },
+
+  async getBookingQuote(quoteData: BookingQuoteDTO): Promise<Money> {
+    return makeRequest<Money>(`${API_ENDPOINTS.BOOKINGS}/quote`, {
+      method: 'POST',
+      body: JSON.stringify(quoteData),
+    });
+  },
+
+  async checkAvailability(spaceId: number, startTime: string, endTime: string): Promise<boolean> {
+    return makeRequest<boolean>(`${API_ENDPOINTS.BOOKINGS}/availability?spaceId=${spaceId}&startTime=${startTime}&endTime=${endTime}`);
   },
 };
 
@@ -126,6 +188,102 @@ export const sessionsApi = {
     return makeRequest<ParkingSession>(`${API_ENDPOINTS.PARKING_SESSIONS}/${sessionId}/cancel`, {
       method: 'POST',
     });
+  },
+};
+
+// Parking API functions
+export const parkingApi = {
+  // Parking Lots
+  async getAllParkingLots(page: number = 0, size: number = 10): Promise<PaginatedResponse<ParkingLotSearchDTO>> {
+    return makeRequest<PaginatedResponse<ParkingLotSearchDTO>>(`/parking/lots?page=${page}&size=${size}`);
+  },
+
+  async getParkingLotById(lotId: number): Promise<ParkingLotDetailDTO> {
+    return makeRequest<ParkingLotDetailDTO>(`/parking/lots/${lotId}`);
+  },
+
+  async findNearbyParkingLots(
+    latitude: number, 
+    longitude: number, 
+    radiusKm: number = 5.0, 
+    page: number = 0, 
+    size: number = 10
+  ): Promise<PaginatedResponse<ParkingLotSearchDTO>> {
+    return makeRequest<PaginatedResponse<ParkingLotSearchDTO>>(
+      `/parking/lots/nearby?latitude=${latitude}&longitude=${longitude}&radiusKm=${radiusKm}&page=${page}&size=${size}`
+    );
+  },
+
+  async findAvailableParkingLots(page: number = 0, size: number = 10): Promise<PaginatedResponse<ParkingLotSearchDTO>> {
+    return makeRequest<PaginatedResponse<ParkingLotSearchDTO>>(`/parking/lots/available?page=${page}&size=${size}`);
+  },
+
+  async searchParkingLots(query: string, page: number = 0, size: number = 10): Promise<PaginatedResponse<ParkingLotSearchDTO>> {
+    return makeRequest<PaginatedResponse<ParkingLotSearchDTO>>(`/parking/lots/search?query=${encodeURIComponent(query)}&page=${page}&size=${size}`);
+  },
+
+  async filterParkingLots(
+    filters: {
+      hasChargingStations?: boolean;
+      hasDisabledAccess?: boolean;
+      hasCctv?: boolean;
+      covered?: boolean;
+    },
+    page: number = 0,
+    size: number = 10
+  ): Promise<PaginatedResponse<ParkingLotSearchDTO>> {
+    const params = new URLSearchParams();
+    if (filters.hasChargingStations !== undefined) params.append('hasChargingStations', filters.hasChargingStations.toString());
+    if (filters.hasDisabledAccess !== undefined) params.append('hasDisabledAccess', filters.hasDisabledAccess.toString());
+    if (filters.hasCctv !== undefined) params.append('hasCctv', filters.hasCctv.toString());
+    if (filters.covered !== undefined) params.append('covered', filters.covered.toString());
+    params.append('page', page.toString());
+    params.append('size', size.toString());
+    
+    return makeRequest<PaginatedResponse<ParkingLotSearchDTO>>(`/parking/lots/filter?${params.toString()}`);
+  },
+
+  // Parking Spaces
+  async getParkingSpaceById(spaceId: number): Promise<ParkingSpaceSummaryDTO> {
+    return makeRequest<ParkingSpaceSummaryDTO>(`/parking/spaces/${spaceId}`);
+  },
+
+  async getParkingSpacesByLotId(lotId: number, page: number = 0, size: number = 10): Promise<PaginatedResponse<ParkingSpaceSummaryDTO>> {
+    return makeRequest<PaginatedResponse<ParkingSpaceSummaryDTO>>(`/parking/spaces/lot/${lotId}?page=${page}&size=${size}`);
+  },
+
+  async getAvailableParkingSpacesByLotId(lotId: number, page: number = 0, size: number = 10): Promise<PaginatedResponse<ParkingSpaceSummaryDTO>> {
+    return makeRequest<PaginatedResponse<ParkingSpaceSummaryDTO>>(`/parking/spaces/lot/${lotId}/available?page=${page}&size=${size}`);
+  },
+
+  async findNearbyAvailableSpaces(
+    latitude: number,
+    longitude: number,
+    radiusKm: number = 2.0,
+    page: number = 0,
+    size: number = 10
+  ): Promise<PaginatedResponse<ParkingSpaceSummaryDTO>> {
+    return makeRequest<PaginatedResponse<ParkingSpaceSummaryDTO>>(
+      `/parking/spaces/nearby?latitude=${latitude}&longitude=${longitude}&radiusKm=${radiusKm}&page=${page}&size=${size}`
+    );
+  },
+
+  async findParkingSpacesByType(spaceType: string, page: number = 0, size: number = 10): Promise<PaginatedResponse<ParkingSpaceSummaryDTO>> {
+    return makeRequest<PaginatedResponse<ParkingSpaceSummaryDTO>>(`/parking/spaces/by-type/${spaceType}?page=${page}&size=${size}`);
+  },
+};
+
+// Rate Management API functions
+export const rateApi = {
+  async getLotRateAssignmentsByLotId(
+    lotId: number, 
+    page: number = 0, 
+    size: number = 10, 
+    sortBy: string = 'priority,desc'
+  ): Promise<PaginatedResponse<LotRateAssignmentDTO>> {
+    return makeRequest<PaginatedResponse<LotRateAssignmentDTO>>(
+      `/admin/rates/lots/${lotId}/rate-assignments?page=${page}&size=${size}&sort=${sortBy}`
+    );
   },
 };
 
