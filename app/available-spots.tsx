@@ -238,7 +238,7 @@ export default function AvailableSpotsScreen() {
     <TouchableOpacity
       key={spot.id}
       style={[styles.spotCard, !spot.isAvailable && styles.spotCardUnavailable]}
-      onPress={() => router.push('/parking-details')}
+      onPress={() => router.push(`/parking-details?lotId=${spot.id}`)}
       activeOpacity={0.8}
     >
       {/* Card Header */}

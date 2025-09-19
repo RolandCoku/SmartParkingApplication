@@ -37,7 +37,7 @@ export interface Booking {
   parkingLotAddress: string;
   vehiclePlate: string;
   vehicleType: 'CAR' | 'MOTORCYCLE' | 'TRUCK' | 'VAN';
-  userGroup: 'REGULAR' | 'PREMIUM' | 'VIP';
+  userGroup: 'RESIDENT' | 'PUBLIC' | 'DISABLED' | 'STAFF';
   startTime: string;
   endTime: string;
   totalPrice: number;
@@ -61,7 +61,7 @@ export interface ParkingSession {
   parkingLotAddress: string;
   vehiclePlate: string;
   vehicleType: 'CAR' | 'MOTORCYCLE' | 'TRUCK' | 'VAN';
-  userGroup: 'REGULAR' | 'PREMIUM' | 'VIP';
+  userGroup: 'RESIDENT' | 'PUBLIC' | 'DISABLED' | 'STAFF';
   startedAt: string;
   endedAt?: string;
   billedAmount?: number;
@@ -170,6 +170,14 @@ export interface ReviewSummaryDTO {
   createdAt: string;
 }
 
+export interface ParkingSpaceImageDTO {
+  id: number;
+  imageUrl: string;
+  caption?: string;
+  isPrimary: boolean;
+  createdAt: string;
+}
+
 export interface AvailabilityInfoDTO {
   lotId: number;
   availableSpaces: number;
@@ -181,7 +189,7 @@ export interface AvailabilityInfoDTO {
 export interface BookingQuoteDTO {
   parkingSpaceId: number;
   vehicleType: 'CAR' | 'MOTORCYCLE' | 'TRUCK' | 'VAN';
-  userGroup: 'REGULAR' | 'PREMIUM' | 'VIP';
+  userGroup: 'RESIDENT' | 'PUBLIC' | 'DISABLED' | 'STAFF';
   startTime: string;
   endTime: string;
 }
@@ -190,7 +198,7 @@ export interface BookingRegistrationDTO {
   parkingSpaceId: number;
   vehiclePlate: string;
   vehicleType: 'CAR' | 'MOTORCYCLE' | 'TRUCK' | 'VAN';
-  userGroup: 'REGULAR' | 'PREMIUM' | 'VIP';
+  userGroup: 'RESIDENT' | 'PUBLIC' | 'DISABLED' | 'STAFF';
   startTime: string;
   endTime: string;
   paymentMethodId?: string;
@@ -200,12 +208,21 @@ export interface BookingRegistrationDTO {
 export interface BookingUpdateDTO {
   vehiclePlate?: string;
   vehicleType?: 'CAR' | 'MOTORCYCLE' | 'TRUCK' | 'VAN';
-  userGroup?: 'REGULAR' | 'PREMIUM' | 'VIP';
+  userGroup?: 'RESIDENT' | 'PUBLIC' | 'DISABLED' | 'STAFF';
   startTime?: string;
   endTime?: string;
   status?: 'PENDING' | 'CONFIRMED' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
   paymentMethodId?: string;
   notes?: string;
+}
+
+export interface PricingQuoteDTO {
+  parkingLotId?: number;
+  parkingSpaceId?: number;
+  vehicleType: 'CAR' | 'MOTORCYCLE' | 'TRUCK' | 'VAN';
+  userGroup: 'RESIDENT' | 'PUBLIC' | 'DISABLED' | 'STAFF';
+  startTime: string;
+  endTime: string;
 }
 
 // Money DTO

@@ -4,7 +4,7 @@ import { authDebugError, authDebugLog } from '../config/debug';
 // Import ApiError class from errors.ts
 import { ApiError } from './errors';
 
-const API_BASE = 'http://192.168.10.106:8080/api/v1';
+const API_BASE = 'http://192.168.252.60:8080/api/v1';
 
 // Updated interface to match API TokenResponseDTO
 export interface TokenResponse {

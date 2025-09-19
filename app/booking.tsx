@@ -1,17 +1,22 @@
 import { colors } from '@/constants/SharedStyles';
+import { BookingRegistrationDTO, Money, ParkingLotDetailDTO, ParkingSpaceSummaryDTO, PricingQuoteDTO, UserCar } from '@/types';
+import { bookingsApi, parkingApi, pricingApi, userApi } from '@/utils/api';
+import { isSessionExpiredError } from '@/utils/auth';
+import { ApiError } from '@/utils/errors';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    Modal,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AuthButton from '../components/AuthButton';
@@ -39,22 +44,31 @@ interface BookingData {
 export default function BookingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [currentStep, setCurrentStep] = useState<'time' | 'vehicle' | 'payment' | 'confirmation'>('time');
+  const { lotId } = useLocalSearchParams<{ lotId: string }>();
+  const [currentStep, setCurrentStep] = useState<'space' | 'time' | 'vehicle' | 'payment' | 'confirmation'>('space');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedStartTime, setSelectedStartTime] = useState('');
   const [selectedEndTime, setSelectedEndTime] = useState('');
-  const [selectedVehicleType, setSelectedVehicleType] = useState('car');
+  const [selectedVehicleType, setSelectedVehicleType] = useState<'CAR' | 'MOTORCYCLE' | 'TRUCK' | 'VAN'>('CAR');
   const [plateNumber, setPlateNumber] = useState('');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('card');
   const [vehicleOption, setVehicleOption] = useState<'registered' | 'unregistered'>('registered');
   const [selectedRegisteredVehicle, setSelectedRegisteredVehicle] = useState('');
+  const [userGroup, setUserGroup] = useState<'RESIDENT' | 'PUBLIC' | 'DISABLED' | 'STAFF'>('PUBLIC');
+  const [loading, setLoading] = useState(true);
+  const [loadingStates, setLoadingStates] = useState({
+    vehicles: false,
+    spaces: false,
+    parkingLot: false,
+  });
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [currentPrice, setCurrentPrice] = useState<Money | null>(null);
+  const [selectedSpaceId, setSelectedSpaceId] = useState<number | null>(null);
+  const [availableSpaces, setAvailableSpaces] = useState<ParkingSpaceSummaryDTO[]>([]);
+  const [parkingLot, setParkingLot] = useState<ParkingLotDetailDTO | null>(null);
   
-  // Mock registered vehicles data
-  const registeredVehicles = [
-    { id: '1', licensePlate: 'ABC-123', brand: 'Toyota', model: 'Camry', color: 'Silver', isDefault: true },
-    { id: '2', licensePlate: 'XYZ-789', brand: 'Honda', model: 'Civic', color: 'Blue', isDefault: false },
-    { id: '3', licensePlate: 'DEF-456', brand: 'Ford', model: 'Focus', color: 'Red', isDefault: false },
-  ];
+  // Real registered vehicles data
+  const [registeredVehicles, setRegisteredVehicles] = useState<UserCar[]>([]);
   const [hasSavedPaymentMethods, setHasSavedPaymentMethods] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [showCalendarModal, setShowCalendarModal] = useState(false);
@@ -65,14 +79,155 @@ export default function BookingScreen() {
     cardholderName: '',
   });
 
-  // Mock parking spot data
-  const parkingSpot = {
-    id: '1',
-    title: 'City Center Garage',
-    address: '123 Main Street, Downtown District',
-    price: '$2.50',
-    spots: 12,
+  useEffect(() => {
+    console.log('useEffect triggered with lotId:', lotId);
+    loadUserVehicles();
+    loadAvailableSpaces();
+    loadParkingLot();
+  }, [lotId]);
+
+  // Update overall loading state based on individual loading states
+  useEffect(() => {
+    const allLoaded = !loadingStates.vehicles && !loadingStates.spaces && !loadingStates.parkingLot;
+    setLoading(!allLoaded);
+  }, [loadingStates]);
+
+  const loadUserVehicles = async () => {
+    try {
+      setLoadingStates(prev => ({ ...prev, vehicles: true }));
+      const vehiclesResponse = await userApi.getUserCars(0, 50);
+      const vehicles = vehiclesResponse.content || [];
+      setRegisteredVehicles(vehicles);
+      
+      // If no registered vehicles, automatically switch to unregistered option
+      if (vehicles.length === 0) {
+        setVehicleOption('unregistered');
+      }
+    } catch (error) {
+      if (isSessionExpiredError(error)) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
+      } else {
+        console.error('Failed to load user vehicles:', error);
+        setRegisteredVehicles([]);
+        // Switch to unregistered if loading fails
+        setVehicleOption('unregistered');
+      }
+    } finally {
+      setLoadingStates(prev => ({ ...prev, vehicles: false }));
+    }
   };
+
+  const loadAvailableSpaces = async () => {
+    console.log('loadAvailableSpaces called with lotId:', lotId);
+    if (!lotId) {
+      console.log('No lotId provided, returning early');
+      return;
+    }
+    
+    try {
+      setLoadingStates(prev => ({ ...prev, spaces: true }));
+      console.log('Loading available spaces for lot ID:', lotId);
+      const spacesResponse = await parkingApi.getAvailableParkingSpacesByLotId(Number(lotId), 0, 100);
+      console.log('Available spaces response:', spacesResponse);
+      const spaces = spacesResponse.content || [];
+      console.log('Available spaces count:', spaces.length);
+      console.log('Available spaces data:', spaces);
+      setAvailableSpaces(spaces);
+    } catch (error) {
+      console.error('Error in loadAvailableSpaces:', error);
+      if (isSessionExpiredError(error)) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
+      } else {
+        console.error('Failed to load available spaces:', error);
+        setAvailableSpaces([]);
+      }
+    } finally {
+      setLoadingStates(prev => ({ ...prev, spaces: false }));
+    }
+  };
+
+  const loadParkingLot = async () => {
+    if (!lotId) return;
+    
+    try {
+      setLoadingStates(prev => ({ ...prev, parkingLot: true }));
+      console.log('Loading parking lot for ID:', lotId);
+      const lotData = await parkingApi.getParkingLotById(Number(lotId));
+      console.log('Parking lot data:', lotData);
+      setParkingLot(lotData);
+    } catch (error) {
+      if (isSessionExpiredError(error)) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
+      } else {
+        console.error('Failed to load parking lot:', error);
+        setParkingLot(null);
+      }
+    } finally {
+      setLoadingStates(prev => ({ ...prev, parkingLot: false }));
+    }
+  };
+
+  const calculatePricing = async () => {
+    if (!selectedStartTime || !selectedEndTime || !selectedSpaceId) return;
+
+    try {
+      setPricingLoading(true);
+      const startDateTime = `${selectedDate}T${selectedStartTime}:00.000Z`;
+      const endDateTime = `${selectedDate}T${selectedEndTime}:00.000Z`;
+
+      const quoteData: PricingQuoteDTO = {
+        parkingSpaceId: selectedSpaceId,
+        vehicleType: selectedVehicleType,
+        userGroup: userGroup,
+        startTime: startDateTime,
+        endTime: endDateTime,
+      };
+
+      const price = await pricingApi.getPricingQuote(quoteData);
+      setCurrentPrice(price);
+    } catch (error) {
+      console.error('Failed to calculate pricing:', error);
+      setCurrentPrice(null);
+    } finally {
+      setPricingLoading(false);
+    }
+  };
+
+  // Calculate pricing when time or vehicle type changes
+  useEffect(() => {
+    if (selectedStartTime && selectedEndTime && selectedSpaceId) {
+      calculatePricing();
+    }
+  }, [selectedStartTime, selectedEndTime, selectedVehicleType, userGroup, selectedDate, selectedSpaceId]);
+
+  // Real parking lot data loaded from API
 
   const timeSlots = [
     '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
@@ -83,10 +238,10 @@ export default function BookingScreen() {
   ];
 
   const vehicleTypes = [
-    { id: 'car', label: 'Car', icon: 'directions-car' },
-    { id: 'motorcycle', label: 'Motorcycle', icon: 'motorcycle' },
-    { id: 'truck', label: 'Truck', icon: 'local-shipping' },
-    { id: 'van', label: 'Van', icon: 'airport-shuttle' },
+    { id: 'CAR', label: 'Car', icon: 'directions-car' },
+    { id: 'MOTORCYCLE', label: 'Motorcycle', icon: 'motorcycle' },
+    { id: 'TRUCK', label: 'Truck', icon: 'local-shipping' },
+    { id: 'VAN', label: 'Van', icon: 'airport-shuttle' },
   ];
 
 
@@ -122,13 +277,21 @@ export default function BookingScreen() {
   };
 
   const calculateTotalPrice = () => {
-    const duration = calculateDuration();
-    const hourlyRate = parseFloat(parkingSpot.price.replace('$', ''));
-    return duration * hourlyRate;
+    if (currentPrice) {
+      return currentPrice.amount / 100; // Convert cents to dollars
+    }
+    return 0;
   };
 
   const handleNext = () => {
     switch (currentStep) {
+      case 'space':
+        if (!selectedSpaceId) {
+          Alert.alert('Error', 'Please select a parking space');
+          return;
+        }
+        setCurrentStep('time');
+        break;
       case 'time':
         if (!selectedStartTime || !selectedEndTime) {
           Alert.alert('Error', 'Please select both start and end times');
@@ -176,10 +339,79 @@ export default function BookingScreen() {
   };
 
 
-  const handleConfirmBooking = () => {
+  const handleConfirmBooking = async () => {
+    try {
+      setLoading(true);
+      
+      console.log('Starting booking creation...');
+      console.log('Selected space ID:', selectedSpaceId);
+      console.log('Selected date:', selectedDate);
+      console.log('Selected start time:', selectedStartTime);
+      console.log('Selected end time:', selectedEndTime);
+      
+      // Validate required fields
+      if (!selectedSpaceId) {
+        Alert.alert('Error', 'Please select a parking space');
+        setLoading(false);
+        return;
+      }
+      
+      if (!selectedStartTime || !selectedEndTime) {
+        Alert.alert('Error', 'Please select start and end times');
+        setLoading(false);
+        return;
+      }
+      
+      if (!selectedDate) {
+        Alert.alert('Error', 'Please select a date');
+        setLoading(false);
+        return;
+      }
+      
+      const startDateTime = `${selectedDate}T${selectedStartTime}:00.000Z`;
+      const endDateTime = `${selectedDate}T${selectedEndTime}:00.000Z`;
+      
+      let vehiclePlate = '';
+      if (vehicleOption === 'registered') {
+        const selectedVehicle = registeredVehicles.find(v => v.id.toString() === selectedRegisteredVehicle);
+        vehiclePlate = selectedVehicle?.licensePlate || '';
+      } else {
+        vehiclePlate = plateNumber;
+      }
+
+      console.log('Vehicle plate:', vehiclePlate);
+      console.log('Vehicle type:', selectedVehicleType);
+      console.log('User group:', userGroup);
+      
+      // Validate vehicle plate
+      if (!vehiclePlate.trim()) {
+        Alert.alert('Error', 'Please enter a vehicle license plate');
+        setLoading(false);
+        return;
+      }
+
+      const bookingData: BookingRegistrationDTO = {
+        parkingSpaceId: selectedSpaceId!,
+        vehiclePlate: vehiclePlate,
+        vehicleType: selectedVehicleType,
+        userGroup: userGroup,
+        startTime: startDateTime,
+        endTime: endDateTime,
+        // Remove paymentMethodId for now since I haven't implemented it yet
+        // paymentMethodId: selectedPaymentMethod,
+        notes: '',
+      };
+
+      console.log('Booking data:', bookingData);
+      console.log('Calling bookingsApi.createBooking...');
+
+      const booking = await bookingsApi.createBooking(bookingData);
+      
+      console.log('Booking created successfully:', booking);
+      
     Alert.alert(
       'Booking Confirmed!',
-      `Your parking spot at ${parkingSpot.title} has been reserved for ${selectedDate} from ${selectedStartTime} to ${selectedEndTime}.`,
+        `Your parking spot at ${parkingLot?.name || 'the selected location'} has been reserved for ${selectedDate} from ${selectedStartTime} to ${selectedEndTime}.`,
       [
         {
           text: 'OK',
@@ -187,7 +419,109 @@ export default function BookingScreen() {
         },
       ]
     );
+    } catch (error) {
+      console.error('Booking creation failed:', error);
+      
+      if (isSessionExpiredError(error)) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
+      } else if (error instanceof ApiError) {
+        console.error('API Error details:', error.status, error.message);
+        Alert.alert('Error', `Failed to create booking: ${error.message}`);
+      } else {
+        console.error('Unknown error:', error);
+        Alert.alert('Error', `Failed to create booking: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // Space selection component
+  const renderSpaceSelection = () => {
+    console.log('Rendering space selection - loading:', loading, 'availableSpaces.length:', availableSpaces.length);
+    console.log('Available spaces in render:', availableSpaces);
+    
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={styles.sectionTitle}>Available Parking Spaces</Text>
+        <Text style={styles.sectionSubtitle}>
+          Choose your preferred parking space
+        </Text>
+
+        {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading available spaces...</Text>
+        </View>
+      ) : availableSpaces.length > 0 ? (
+        <View style={styles.spacesGrid}>
+          {availableSpaces.map((space) => (
+            <TouchableOpacity
+              key={space.id}
+              style={[
+                styles.spaceCard,
+                selectedSpaceId === space.id && styles.spaceCardSelected
+              ]}
+              onPress={() => setSelectedSpaceId(space.id)}
+              activeOpacity={0.8}
+            >
+              <View style={styles.spaceHeader}>
+                <Text style={styles.spaceLabel}>{space.label}</Text>
+                <View style={[
+                  styles.spaceStatus,
+                  { backgroundColor: space.spaceStatus === 'AVAILABLE' ? '#4CAF50' : '#FF9800' }
+                ]}>
+                  <Text style={styles.spaceStatusText}>
+                    {space.spaceStatus === 'AVAILABLE' ? 'Available' : 'Reserved'}
+                  </Text>
+                </View>
+              </View>
+              
+              <View style={styles.spaceDetails}>
+                <Text style={styles.spaceType}>{space.spaceType}</Text>
+                {space.description && (
+                  <Text style={styles.spaceDescription}>{space.description}</Text>
+                )}
+                {space.hasSensor && (
+                  <View style={styles.sensorBadge}>
+                    <MaterialIcons name="sensors" size={12} color="#000000" />
+                    <Text style={styles.sensorText}>Smart Sensor</Text>
+                  </View>
+                )}
+              </View>
+              
+              {selectedSpaceId === space.id && (
+                <View style={styles.selectedIndicator}>
+                  <MaterialIcons name="check-circle" size={20} color={colors.primary} />
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <MaterialIcons name="local-parking" size={64} color={colors.textSecondary} />
+              <Text style={styles.emptyTitle}>No Available Spaces</Text>
+              <Text style={styles.emptySubtitle}>
+                All parking spaces are currently occupied. Please try again later.
+              </Text>
+              <Text style={styles.emptySubtitle}>
+                Debug: Loading={loading.toString()}, Spaces={availableSpaces.length}
+              </Text>
+            </View>
+          )}
+        </View>
+      );
+    };
 
   // Calendar component
   const renderCalendar = () => {
@@ -395,7 +729,13 @@ export default function BookingScreen() {
           </View>
           <View style={styles.previewRow}>
             <Text style={styles.previewLabel}>Total Price:</Text>
-            <Text style={styles.previewPrice}>${calculateTotalPrice().toFixed(2)}</Text>
+            {pricingLoading ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Text style={styles.previewPrice}>
+                {currentPrice ? `$${(currentPrice.amount / 100).toFixed(2)}` : 'Price unavailable'}
+              </Text>
+            )}
           </View>
         </View>
       )}
@@ -460,29 +800,24 @@ export default function BookingScreen() {
             registeredVehicles.map((vehicle) => (
               <TouchableOpacity
                 key={vehicle.id}
-                style={[styles.registeredVehicleCard, selectedRegisteredVehicle === vehicle.id && styles.registeredVehicleCardSelected]}
-                onPress={() => setSelectedRegisteredVehicle(vehicle.id)}
+                style={[styles.registeredVehicleCard, selectedRegisteredVehicle === vehicle.id.toString() && styles.registeredVehicleCardSelected]}
+                onPress={() => setSelectedRegisteredVehicle(vehicle.id.toString())}
               >
                 <View style={styles.vehicleInfo}>
                   <MaterialIcons 
                     name="directions-car" 
                     size={24} 
-                    color={selectedRegisteredVehicle === vehicle.id ? '#000000' : colors.textSecondary} 
+                    color={selectedRegisteredVehicle === vehicle.id.toString() ? '#000000' : colors.textSecondary} 
                   />
                   <View style={styles.vehicleDetails}>
-                    <Text style={[styles.vehicleNickname, selectedRegisteredVehicle === vehicle.id && styles.vehicleNicknameSelected]}>
+                    <Text style={[styles.vehicleNickname, selectedRegisteredVehicle === vehicle.id.toString() && styles.vehicleNicknameSelected]}>
                       {vehicle.brand} {vehicle.model}
                     </Text>
                     <Text style={styles.vehiclePlate}>{vehicle.licensePlate}</Text>
                     <Text style={styles.vehicleColor}>{vehicle.color}</Text>
                   </View>
                 </View>
-                {vehicle.isDefault && (
-                  <View style={styles.defaultBadge}>
-                    <Text style={styles.defaultBadgeText}>Default</Text>
-                  </View>
-                )}
-                {selectedRegisteredVehicle === vehicle.id && (
+                {selectedRegisteredVehicle === vehicle.id.toString() && (
                   <MaterialIcons name="check-circle" size={20} color={colors.primary} />
                 )}
               </TouchableOpacity>
@@ -528,7 +863,7 @@ export default function BookingScreen() {
               <TouchableOpacity
                 key={vehicle.id}
                 style={[styles.vehicleTypeCard, selectedVehicleType === vehicle.id && styles.vehicleTypeCardSelected]}
-                onPress={() => setSelectedVehicleType(vehicle.id)}
+                onPress={() => setSelectedVehicleType(vehicle.id as 'CAR' | 'MOTORCYCLE' | 'TRUCK' | 'VAN')}
               >
                 <MaterialIcons 
                   name={vehicle.icon as any} 
@@ -679,7 +1014,7 @@ export default function BookingScreen() {
         <Text style={styles.summaryTitle}>Booking Summary</Text>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Location:</Text>
-          <Text style={styles.summaryValue}>{parkingSpot.title}</Text>
+          <Text style={styles.summaryValue}>{parkingLot?.name || 'Loading...'}</Text>
         </View>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Date:</Text>
@@ -698,7 +1033,7 @@ export default function BookingScreen() {
           <Text style={styles.summaryValue}>
             {vehicleOption === 'registered' 
               ? (() => {
-                  const vehicle = registeredVehicles.find(v => v.id === selectedRegisteredVehicle);
+                  const vehicle = registeredVehicles.find(v => v.id.toString() === selectedRegisteredVehicle);
                   return vehicle ? `${vehicle.brand} ${vehicle.model} (${vehicle.licensePlate})` : 'Selected Vehicle';
                 })()
               : `${plateNumber} • ${vehicleTypes.find(v => v.id === selectedVehicleType)?.label}`
@@ -707,7 +1042,9 @@ export default function BookingScreen() {
         </View>
         <View style={[styles.summaryRow, styles.summaryTotalRow]}>
           <Text style={styles.summaryTotalLabel}>Total:</Text>
-          <Text style={styles.summaryTotalPrice}>${calculateTotalPrice().toFixed(2)}</Text>
+          <Text style={styles.summaryTotalPrice}>
+            {currentPrice ? `$${(currentPrice.amount / 100).toFixed(2)}` : 'Price unavailable'}
+          </Text>
         </View>
       </View>
     </View>
@@ -724,8 +1061,8 @@ export default function BookingScreen() {
       <View style={styles.confirmationDetails}>
         <View style={styles.confirmationCard}>
           <Text style={styles.confirmationCardTitle}>Parking Details</Text>
-          <Text style={styles.confirmationCardText}>{parkingSpot.title}</Text>
-          <Text style={styles.confirmationCardSubtext}>{parkingSpot.address}</Text>
+          <Text style={styles.confirmationCardText}>{parkingLot?.name || 'Loading...'}</Text>
+          <Text style={styles.confirmationCardSubtext}>{parkingLot?.address || 'Loading...'}</Text>
         </View>
 
         <View style={styles.confirmationCard}>
@@ -736,7 +1073,10 @@ export default function BookingScreen() {
           <Text style={styles.confirmationCardSubtext}>
             {calculateDuration()} hours • {
               vehicleOption === 'registered' 
-                ? registeredVehicles.find(v => v.id === selectedRegisteredVehicle)?.nickname || 'Selected Vehicle'
+                ? (() => {
+                    const vehicle = registeredVehicles.find(v => v.id.toString() === selectedRegisteredVehicle);
+                    return vehicle ? `${vehicle.brand} ${vehicle.model}` : 'Selected Vehicle';
+                  })()
                 : `${plateNumber} • ${vehicleTypes.find(v => v.id === selectedVehicleType)?.label}`
             }
           </Text>
@@ -747,7 +1087,9 @@ export default function BookingScreen() {
           <Text style={styles.confirmationCardText}>
             {paymentMethods.find(p => p.id === selectedPaymentMethod)?.label}
           </Text>
-          <Text style={styles.confirmationTotalPrice}>${calculateTotalPrice().toFixed(2)}</Text>
+          <Text style={styles.confirmationTotalPrice}>
+            {currentPrice ? `$${(currentPrice.amount / 100).toFixed(2)}` : 'Price unavailable'}
+          </Text>
         </View>
       </View>
     </View>
@@ -755,6 +1097,7 @@ export default function BookingScreen() {
 
   const getStepTitle = () => {
     switch (currentStep) {
+      case 'space': return 'Select Space';
       case 'time': return 'Select Time';
       case 'vehicle': return 'Vehicle Info';
       case 'payment': return 'Payment';
@@ -770,6 +1113,23 @@ export default function BookingScreen() {
     }
   };
 
+  if (loading && currentStep === 'space') {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.headerSpacer} />
+          <Text style={styles.headerTitle}>Loading...</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading booking information...</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={colors.background} />
@@ -783,13 +1143,13 @@ export default function BookingScreen() {
 
       {/* Progress Indicator */}
       <View style={styles.progressContainer}>
-        {['time', 'vehicle', 'payment', 'confirmation'].map((step, index) => (
+        {['space', 'time', 'vehicle', 'payment', 'confirmation'].map((step, index) => (
           <View key={step} style={styles.progressStep}>
             <View style={[
               styles.progressDot,
-              (['time', 'vehicle', 'payment', 'confirmation'].indexOf(currentStep) >= index) && styles.progressDotActive
+              (['space', 'time', 'vehicle', 'payment', 'confirmation'].indexOf(currentStep) >= index) && styles.progressDotActive
             ]} />
-            {index < 3 && <View style={styles.progressLine} />}
+            {index < 4 && <View style={styles.progressLine} />}
           </View>
         ))}
       </View>
@@ -800,6 +1160,7 @@ export default function BookingScreen() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
         showsVerticalScrollIndicator={false}
       >
+        {currentStep === 'space' && renderSpaceSelection()}
         {currentStep === 'time' && renderTimeSelection()}
         {currentStep === 'vehicle' && renderVehicleSelection()}
         {currentStep === 'payment' && renderPaymentSelection()}
@@ -809,12 +1170,19 @@ export default function BookingScreen() {
       {/* Bottom Action Bar */}
       <View style={[styles.actionBar, { paddingBottom: insets.bottom + 16 }]}>
         <View style={styles.actionInfo}>
-          <Text style={styles.actionPrice}>${calculateTotalPrice().toFixed(2)}</Text>
+          <Text style={styles.actionPrice}>
+            {pricingLoading ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              currentPrice ? `$${(currentPrice.amount / 100).toFixed(2)}` : 'Calculating...'
+            )}
+          </Text>
           <Text style={styles.actionLabel}>Total</Text>
         </View>
         <AuthButton
           title={getButtonText()}
           onPress={handleNext}
+          loading={loading}
           variant="primary"
         />
       </View>
@@ -894,6 +1262,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     marginBottom: 12,
+  },
+  sectionSubtitle: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    marginBottom: 20,
   },
   dateContainer: {
     flexDirection: 'row',
@@ -1188,18 +1561,6 @@ const styles = StyleSheet.create({
   paymentExpiry: {
     color: colors.textSecondary,
     fontSize: 12,
-  },
-  defaultBadge: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginRight: 8,
-  },
-  defaultBadgeText: {
-    color: '#000000',
-    fontSize: 10,
-    fontWeight: '700',
   },
   formGroup: {
     marginBottom: 16,
@@ -1496,5 +1857,108 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 12,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    marginTop: 16,
+  },
+  // Space selection styles
+  spacesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  spaceCard: {
+    width: '48%',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    position: 'relative',
+  },
+  spaceCardSelected: {
+    borderColor: colors.primary,
+    borderWidth: 2,
+    backgroundColor: colors.background,
+  },
+  spaceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  spaceLabel: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  spaceStatus: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  spaceStatusText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  spaceDetails: {
+    gap: 4,
+  },
+  spaceType: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  spaceDescription: {
+    color: colors.textSecondary,
+    fontSize: 11,
+  },
+  sensorBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+    marginTop: 4,
+  },
+  sensorText: {
+    color: '#000000',
+    fontSize: 9,
+    fontWeight: '700',
+    marginLeft: 2,
+  },
+  selectedIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

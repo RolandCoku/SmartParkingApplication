@@ -1,8 +1,14 @@
 import { colors } from '@/constants/SharedStyles';
+import { ParkingLotDetailDTO, ReviewSummaryDTO } from '@/types';
+import { parkingApi } from '@/utils/api';
+import { isSessionExpiredError } from '@/utils/auth';
+import { ApiError } from '@/utils/errors';
+import { formatRate, getHighestPriorityRate } from '@/utils/rates';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
     Dimensions,
     Image,
@@ -17,96 +23,88 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AuthButton from '../components/AuthButton';
 
-interface ParkingSpot {
-  id: string;
-  title: string;
-  address: string;
-  distance: string;
-  price: string;
-  spots: number;
-  rating: number;
-  features: string[];
-  isFavorite: boolean;
-  isAvailable: boolean;
-  description: string;
-  images: string[];
-  amenities: string[];
-  operatingHours: string;
-  contact: string;
-  reviews: {
-    id: string;
-    user: string;
-    rating: number;
-    comment: string;
-    date: string;
-  }[];
-}
 
 const { width: screenWidth } = Dimensions.get('window');
 
 export default function ParkingDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { lotId } = useLocalSearchParams<{ lotId: string }>();
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [showImageModal, setShowImageModal] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [parkingLot, setParkingLot] = useState<ParkingLotDetailDTO | null>(null);
+  const [reviews, setReviews] = useState<ReviewSummaryDTO[]>([]);
+  const [images, setImages] = useState<string[]>([]);
+  const [hourlyRate, setHourlyRate] = useState<number | null>(null);
 
-  // Detailed parking spot data
-  const parkingSpot: ParkingSpot = {
-    id: '1',
-    title: 'City Center Garage',
-    address: '123 Main Street, Downtown District',
-    distance: '0.3 km',
-    price: 'Rate N/A',
-    spots: 12,
-    rating: 4.8,
-    features: ['Covered', 'Security', 'EV Charging'],
-    isFavorite: false,
-    isAvailable: true,
-    description: 'Modern multi-level parking garage in the heart of downtown. Features 24/7 security, covered parking, and electric vehicle charging stations. Conveniently located near shopping centers, restaurants, and business districts.',
-    images: [
-      'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800',
-      'https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=800',
-      'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800',
-    ],
-    amenities: [
-      '24/7 Security Monitoring',
-      'Electric Vehicle Charging',
-      'Covered Parking',
-      'Elevator Access',
-      'Wheelchair Accessible',
-      'Car Wash Service',
-      'Valet Parking Available',
-    ],
-    operatingHours: '24/7',
-    contact: '+1 (555) 123-4567',
-    reviews: [
-      {
-        id: '1',
-        user: 'Sarah M.',
-        rating: 5,
-        comment: 'Great location and very secure. The EV charging stations are a huge plus!',
-        date: '2 days ago',
-      },
-      {
-        id: '2',
-        user: 'Mike R.',
-        rating: 4,
-        comment: 'Clean and well-maintained. A bit pricey but worth it for the convenience.',
-        date: '1 week ago',
-      },
-      {
-        id: '3',
-        user: 'Emily K.',
-        rating: 5,
-        comment: 'Excellent service and easy to find. Will definitely use again.',
-        date: '2 weeks ago',
-      },
-    ],
+  useEffect(() => {
+    if (lotId) {
+      loadParkingLotData();
+    }
+  }, [lotId]);
+
+  const loadParkingLotData = async () => {
+    try {
+      setLoading(true);
+      
+      // Load parking lot details
+      const lotData = await parkingApi.getParkingLotById(Number(lotId));
+      setParkingLot(lotData);
+      
+      // Load rate information
+      try {
+        const rate = await getHighestPriorityRate(Number(lotId));
+        setHourlyRate(rate);
+      } catch (rateError) {
+        console.log('Rate not available:', rateError);
+        setHourlyRate(null);
+      }
+      
+      // Load reviews
+      try {
+        const reviewsResponse = await parkingApi.getParkingLotReviews(Number(lotId), 0, 10);
+        setReviews(reviewsResponse.content || []);
+      } catch (reviewError) {
+        console.log('Reviews not available:', reviewError);
+        setReviews([]);
+      }
+      
+      // Load images
+      try {
+        const imagesResponse = await parkingApi.getParkingLotImages(Number(lotId));
+        setImages(imagesResponse.map(img => img.imageUrl || ''));
+      } catch (imageError) {
+        console.log('Images not available:', imageError);
+        setImages([]);
+      }
+      
+    } catch (error) {
+      if (isSessionExpiredError(error)) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
+      } else if (error instanceof ApiError) {
+        Alert.alert('Error', `Failed to load parking lot details: ${error.message}`);
+      } else {
+        Alert.alert('Error', 'Failed to load parking lot details. Please try again.');
+      }
+      router.back();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleBookNow = () => {
-    router.push('/booking');
+    router.push(`/booking?lotId=${lotId}`);
   };
 
   const handleAddToWaitlist = () => {
@@ -134,6 +132,71 @@ export default function ParkingDetailsScreen() {
       />
     ));
   };
+
+  const formatReviewDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - date.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 1) return 'Today';
+    if (diffDays === 2) return 'Yesterday';
+    if (diffDays <= 7) return `${diffDays - 1} days ago`;
+    return date.toLocaleDateString();
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.headerSpacer} />
+          <Text style={styles.headerTitle}>Parking Details</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading parking details...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (!parkingLot) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.headerSpacer} />
+          <Text style={styles.headerTitle}>Parking Details</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+        <View style={styles.errorContainer}>
+          <MaterialIcons name="error-outline" size={48} color={colors.textSecondary} />
+          <Text style={styles.errorTitle}>Failed to Load Details</Text>
+          <Text style={styles.errorSubtitle}>Please try again later</Text>
+          <AuthButton
+            title="Go Back"
+            onPress={() => router.back()}
+            variant="primary"
+          />
+        </View>
+      </View>
+    );
+  }
+
+  // Build features array from API data
+  const features = [];
+  if (parkingLot.hasChargingStations) features.push('EV Charging');
+  if (parkingLot.covered) features.push('Covered');
+  if (parkingLot.hasCctv) features.push('Security');
+  if (parkingLot.hasDisabledAccess) features.push('Disabled Access');
+
+  // Default images if none available
+  const displayImages = images.length > 0 ? images : [
+    'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800',
+    'https://images.unsplash.com/photo-1560472354-b33ff0c44a43?w=800',
+  ];
 
   return (
     <View style={styles.container}>
@@ -171,7 +234,7 @@ export default function ParkingDetailsScreen() {
               setSelectedImageIndex(index);
             }}
           >
-            {parkingSpot.images.map((image, index) => (
+            {displayImages.map((image, index) => (
               <TouchableOpacity
                 key={index}
                 onPress={() => setShowImageModal(true)}
@@ -184,7 +247,7 @@ export default function ParkingDetailsScreen() {
           
           {/* Image Indicators */}
           <View style={styles.imageIndicators}>
-            {parkingSpot.images.map((_, index) => (
+            {displayImages.map((_, index) => (
               <View
                 key={index}
                 style={[
@@ -199,116 +262,124 @@ export default function ParkingDetailsScreen() {
         {/* Main Info */}
         <View style={styles.mainInfo}>
           <View style={styles.titleRow}>
-            <Text style={styles.title}>{parkingSpot.title}</Text>
+            <Text style={styles.title}>{parkingLot.name}</Text>
             <View style={styles.ratingContainer}>
-              {renderStars(parkingSpot.rating)}
-              <Text style={styles.ratingText}>{parkingSpot.rating}</Text>
+              {renderStars(parkingLot.averageRating || 0)}
+              <Text style={styles.ratingText}>{parkingLot.averageRating?.toFixed(1) || 'N/A'}</Text>
             </View>
           </View>
 
           <View style={styles.addressRow}>
             <MaterialIcons name="location-on" size={16} color={colors.textSecondary} />
-            <Text style={styles.address}>{parkingSpot.address}</Text>
-          </View>
-
-          <View style={styles.distanceRow}>
-            <MaterialIcons name="directions-walk" size={16} color={colors.textSecondary} />
-            <Text style={styles.distance}>{parkingSpot.distance} away</Text>
+            <Text style={styles.address}>{parkingLot.address}</Text>
           </View>
         </View>
 
         {/* Price and Availability */}
         <View style={styles.priceSection}>
           <View style={styles.priceInfo}>
-            <Text style={styles.price}>{parkingSpot.price}</Text>
+            <Text style={styles.price}>{formatRate(hourlyRate)}</Text>
             <Text style={styles.priceLabel}>per hour</Text>
           </View>
           <View style={styles.availabilityInfo}>
             <View style={[
               styles.availabilityDot,
-              { backgroundColor: parkingSpot.isAvailable ? '#4CAF50' : '#FF4444' }
+              { backgroundColor: parkingLot.availableSpaces > 0 ? '#4CAF50' : '#FF4444' }
             ]} />
             <Text style={styles.availabilityText}>
-              {parkingSpot.isAvailable ? `${parkingSpot.spots} spots available` : 'Fully booked'}
+              {parkingLot.availableSpaces > 0 ? `${parkingLot.availableSpaces} spots available` : 'Fully booked'}
             </Text>
           </View>
         </View>
 
         {/* Features */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Features</Text>
-          <View style={styles.featuresContainer}>
-            {parkingSpot.features.map((feature, index) => (
-              <View key={index} style={styles.featureTag}>
-                <Text style={styles.featureText}>{feature}</Text>
-              </View>
-            ))}
+        {features.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Features</Text>
+            <View style={styles.featuresContainer}>
+              {features.map((feature, index) => (
+                <View key={index} style={styles.featureTag}>
+                  <Text style={styles.featureText}>{feature}</Text>
+                </View>
+              ))}
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Description */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Description</Text>
-          <Text style={styles.description}>{parkingSpot.description}</Text>
-        </View>
-
-        {/* Amenities */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Amenities</Text>
-          {parkingSpot.amenities.map((amenity, index) => (
-            <View key={index} style={styles.amenityRow}>
-              <MaterialIcons name="check-circle" size={16} color="#4CAF50" />
-              <Text style={styles.amenityText}>{amenity}</Text>
-            </View>
-          ))}
-        </View>
+        {parkingLot.description && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Description</Text>
+            <Text style={styles.description}>{parkingLot.description}</Text>
+          </View>
+        )}
 
         {/* Operating Hours */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Operating Hours</Text>
-          <View style={styles.hoursRow}>
-            <MaterialIcons name="schedule" size={16} color={colors.textSecondary} />
-            <Text style={styles.hoursText}>{parkingSpot.operatingHours}</Text>
+        {parkingLot.operatingHours && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Operating Hours</Text>
+            <View style={styles.hoursRow}>
+              <MaterialIcons name="schedule" size={16} color={colors.textSecondary} />
+              <Text style={styles.hoursText}>{parkingLot.operatingHours}</Text>
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Contact */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Contact</Text>
-          <TouchableOpacity style={styles.contactRow}>
-            <MaterialIcons name="phone" size={16} color={colors.primary} />
-            <Text style={styles.contactText}>{parkingSpot.contact}</Text>
-          </TouchableOpacity>
-        </View>
+        {(parkingLot.phone || parkingLot.email) && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Contact</Text>
+            {parkingLot.phone && (
+              <TouchableOpacity style={styles.contactRow}>
+                <MaterialIcons name="phone" size={16} color={colors.primary} />
+                <Text style={styles.contactText}>{parkingLot.phone}</Text>
+              </TouchableOpacity>
+            )}
+            {parkingLot.email && (
+              <TouchableOpacity style={styles.contactRow}>
+                <MaterialIcons name="email" size={16} color={colors.primary} />
+                <Text style={styles.contactText}>{parkingLot.email}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
 
         {/* Reviews */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Reviews ({parkingSpot.reviews.length})</Text>
-          {parkingSpot.reviews.map((review) => (
-            <View key={review.id} style={styles.reviewCard}>
-              <View style={styles.reviewHeader}>
-                <Text style={styles.reviewUser}>{review.user}</Text>
-                <View style={styles.reviewRating}>
-                  {renderReviewStars(review.rating)}
+          <Text style={styles.sectionTitle}>Reviews ({reviews.length})</Text>
+          {reviews.length > 0 ? (
+            reviews.map((review) => (
+              <View key={review.id} style={styles.reviewCard}>
+                <View style={styles.reviewHeader}>
+                  <Text style={styles.reviewUser}>{review.userName}</Text>
+                  <View style={styles.reviewRating}>
+                    {renderReviewStars(review.rating)}
+                  </View>
                 </View>
+                <Text style={styles.reviewComment}>{review.comment}</Text>
+                <Text style={styles.reviewDate}>{formatReviewDate(review.createdAt)}</Text>
               </View>
-              <Text style={styles.reviewComment}>{review.comment}</Text>
-              <Text style={styles.reviewDate}>{review.date}</Text>
+            ))
+          ) : (
+            <View style={styles.noReviewsContainer}>
+              <MaterialIcons name="rate-review" size={32} color={colors.textSecondary} />
+              <Text style={styles.noReviewsText}>No reviews yet</Text>
+              <Text style={styles.noReviewsSubtext}>Be the first to review this parking lot</Text>
             </View>
-          ))}
+          )}
         </View>
       </ScrollView>
 
       {/* Bottom Action Bar */}
       <View style={[styles.actionBar, { paddingBottom: insets.bottom + 16 }]}>
         <View style={styles.actionInfo}>
-          <Text style={styles.actionPrice}>{parkingSpot.price}</Text>
+          <Text style={styles.actionPrice}>{formatRate(hourlyRate)}</Text>
           <Text style={styles.actionLabel}>per hour</Text>
         </View>
         <AuthButton
-          title={parkingSpot.isAvailable ? "Book Now" : "Join Waitlist"}
-          onPress={parkingSpot.isAvailable ? handleBookNow : handleAddToWaitlist}
-          variant={parkingSpot.isAvailable ? "primary" : "secondary"}
+          title={parkingLot.availableSpaces > 0 ? "Book Now" : "Join Waitlist"}
+          onPress={parkingLot.availableSpaces > 0 ? handleBookNow : handleAddToWaitlist}
+          variant={parkingLot.availableSpaces > 0 ? "primary" : "secondary"}
           style={styles.bookButton}
         />
       </View>
@@ -332,7 +403,7 @@ export default function ParkingDetailsScreen() {
             pagingEnabled
             showsHorizontalScrollIndicator={false}
           >
-            {parkingSpot.images.map((image, index) => (
+            {displayImages.map((image, index) => (
               <Image key={index} source={{ uri: image }} style={styles.modalImage} />
             ))}
           </ScrollView>
@@ -627,5 +698,53 @@ const styles = StyleSheet.create({
     width: screenWidth,
     height: '100%',
     resizeMode: 'contain',
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    marginTop: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 24,
+  },
+  errorTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  errorSubtitle: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  noReviewsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  noReviewsText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '700',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  noReviewsSubtext: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
   },
 });

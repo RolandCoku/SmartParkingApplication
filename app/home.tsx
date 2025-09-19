@@ -11,6 +11,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -67,6 +68,12 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [currentFilter, setCurrentFilter] = useState<string>('All');
   const [filterLoading, setFilterLoading] = useState(false);
+  
+  // Available spots modal pagination state
+  const [allParkingLots, setAllParkingLots] = useState<ParkingLotSearchDTO[]>([]);
+  const [availableSpotsLoading, setAvailableSpotsLoading] = useState(false);
+  const [availableSpotsPage, setAvailableSpotsPage] = useState(0);
+  const [hasMoreAvailableSpots, setHasMoreAvailableSpots] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -113,7 +120,7 @@ export default function HomeScreen() {
           const nearbyResponse = await parkingApi.findNearbyParkingLots(
             userLocation.coords.latitude,
             userLocation.coords.longitude,
-            5.0, // 5km radius
+            50.0, // 5km radius
             0,
             10
           );
@@ -280,6 +287,60 @@ export default function HomeScreen() {
     }
   };
 
+  const loadAllAvailableSpots = async (page: number = 0, reset: boolean = false) => {
+    try {
+      setAvailableSpotsLoading(true);
+      
+      // Load all available parking lots with pagination
+      const response = await parkingApi.findAvailableParkingLots(page, 20); // Load 20 per page
+      const lots = response.content || [];
+      const lotsWithRates = await fetchRatesForLots(lots);
+      
+      if (reset) {
+        setAllParkingLots(lotsWithRates);
+        setAvailableSpotsPage(0);
+      } else {
+        setAllParkingLots(prev => [...prev, ...lotsWithRates]);
+      }
+      
+      // Check if there are more pages
+      setHasMoreAvailableSpots(lots.length === 20); // If we got less than 20, we're at the end
+      
+    } catch (error) {
+      debugError('Failed to load available spots:', error);
+      if (isSessionExpiredError(error)) {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please login again.',
+          [
+            {
+              text: 'OK',
+              onPress: () => router.replace('/login')
+            }
+          ]
+        );
+        return;
+      }
+      setHasMoreAvailableSpots(false);
+    } finally {
+      setAvailableSpotsLoading(false);
+    }
+  };
+
+  const handleAvailableSpotsModalOpen = () => {
+    setShowAvailableSpotsModal(true);
+    // Load first page when modal opens
+    loadAllAvailableSpots(0, true);
+  };
+
+  const loadMoreAvailableSpots = () => {
+    if (!availableSpotsLoading && hasMoreAvailableSpots) {
+      const nextPage = availableSpotsPage + 1;
+      setAvailableSpotsPage(nextPage);
+      loadAllAvailableSpots(nextPage, false);
+    }
+  };
+
   if (!authenticated) return null;
 
   return (
@@ -307,8 +368,8 @@ export default function HomeScreen() {
                 query={searchQuery}
                 results={searchResults}
                 isLoading={isSearching}
-                onSpotPress={(spot) => router.push('/parking-details')}
-                onBookNow={() => router.push('/booking')}
+                onSpotPress={(spot) => router.push(`/parking-details?lotId=${spot.id}`)}
+                onBookNow={(spot) => router.push(`/booking?lotId=${spot.id}`)}
               />
             ) : (
               <>
@@ -317,9 +378,9 @@ export default function HomeScreen() {
                   loading={loading || filterLoading}
                 />
                 <ParkingSpots 
-                  onExplore={() => setShowAvailableSpotsModal(true)} 
-                  onSpotPress={(spot) => router.push('/parking-details')}
-                  onBookNow={() => router.push('/booking')}
+                  onExplore={handleAvailableSpotsModalOpen} 
+                  onSpotPress={(spot) => router.push(`/parking-details?lotId=${spot.id}`)}
+                  onBookNow={(spot) => router.push(`/booking?lotId=${spot.id}`)}
                   parkingLots={nearbyParkingLots}
                   loading={loading || filterLoading}
                 />
@@ -366,16 +427,16 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
           
-          <ScrollView 
-            style={modalStyles.content}
-            contentContainerStyle={[modalStyles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
-            showsVerticalScrollIndicator={false}
-          >
-            <AvailableSpotsModalContent 
-              parkingLots={nearbyParkingLots}
-              loading={loading || filterLoading}
-            />
-          </ScrollView>
+          <AvailableSpotsModalContent 
+            parkingLots={allParkingLots}
+            loading={availableSpotsLoading}
+            hasMore={hasMoreAvailableSpots}
+            onLoadMore={loadMoreAvailableSpots}
+            onSpotPress={(spot) => {
+              setShowAvailableSpotsModal(false);
+              router.push(`/parking-details?lotId=${spot.id}`);
+            }}
+          />
         </View>
       </Modal>
 
@@ -578,7 +639,7 @@ function ParkingSpots({
 }: { 
   onExplore: () => void; 
   onSpotPress: (spot: ParkingLotSearchDTO) => void; 
-  onBookNow: () => void;
+  onBookNow: (spot: ParkingLotSearchDTO) => void;
   parkingLots: ParkingLotSearchDTO[];
   loading: boolean;
 }) {
@@ -706,7 +767,7 @@ function ParkingSpots({
             </View>
             <AuthButton
               title={item.isAvailable ? "Book Now" : "Waitlist"}
-              onPress={onBookNow}
+              onPress={() => onBookNow(parkingLots.find(lot => lot.id.toString() === item.id)!)}
               variant={item.isAvailable ? "primary" : "secondary"}
             />
           </TouchableOpacity>
@@ -741,7 +802,7 @@ function SearchResults({
   results: any[]; 
   isLoading: boolean; 
   onSpotPress: (spot: any) => void; 
-  onBookNow: () => void; 
+  onBookNow: (spot: any) => void; 
 }) {
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
 
@@ -842,7 +903,7 @@ function SearchResults({
             </View>
             <AuthButton
               title={spot.isAvailable ? "Book Now" : "Waitlist"}
-              onPress={onBookNow}
+              onPress={() => onBookNow(spot)}
               variant={spot.isAvailable ? "primary" : "secondary"}
             />
           </TouchableOpacity>
@@ -1168,7 +1229,19 @@ const bookingsStyles = StyleSheet.create({
 });
 
 // Modal Content Components
-function AvailableSpotsModalContent({ parkingLots, loading }: { parkingLots: ParkingLotSearchDTO[]; loading: boolean }) {
+function AvailableSpotsModalContent({ 
+  parkingLots, 
+  loading, 
+  hasMore, 
+  onLoadMore, 
+  onSpotPress 
+}: { 
+  parkingLots: ParkingLotSearchDTO[]; 
+  loading: boolean;
+  hasMore: boolean;
+  onLoadMore: () => void;
+  onSpotPress: (spot: ParkingLotSearchDTO) => void;
+}) {
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
 
   const items: ParkingSpot[] = useMemo(() => {
@@ -1202,30 +1275,94 @@ function AvailableSpotsModalContent({ parkingLots, loading }: { parkingLots: Par
     });
   };
 
-  if (loading) {
+  const renderSpotItem = ({ item }: { item: ParkingSpot }) => {
+    const parkingLot = parkingLots.find(lot => lot.id.toString() === item.id);
+    if (!parkingLot) return null;
+
     return (
-      <View style={modalContentStyles.container}>
+      <TouchableOpacity
+        style={[modalContentStyles.spotCard, !item.isAvailable && modalContentStyles.spotCardUnavailable]}
+        onPress={() => onSpotPress(parkingLot)}
+        activeOpacity={0.8}
+      >
+        <View style={modalContentStyles.spotHeader}>
+          <View style={modalContentStyles.spotTitleRow}>
+            <Text style={modalContentStyles.spotTitle} numberOfLines={1}>{item.title}</Text>
+            <TouchableOpacity 
+              onPress={(e) => {
+                e.stopPropagation();
+                toggleFavorite(item.id);
+              }}
+            >
+              <MaterialIcons
+                name={favorites.has(item.id) ? "favorite" : "favorite-border"}
+                size={18}
+                color={favorites.has(item.id) ? "#FF69B4" : colors.textSecondary}
+              />
+            </TouchableOpacity>
+          </View>
+          <View style={modalContentStyles.spotMetaRow}>
+            <Text style={modalContentStyles.spotDistance}>{item.distance}</Text>
+            <View style={modalContentStyles.spotRating}>
+              <MaterialIcons name="star" size={12} color="#FFD700" />
+              <Text style={modalContentStyles.spotRatingText}>{item.rating}</Text>
+            </View>
+          </View>
+        </View>
+        <View style={modalContentStyles.spotFeatures}>
+          {item.features.map((feature, index) => (
+            <View key={index} style={modalContentStyles.spotFeatureTag}>
+              <Text style={modalContentStyles.spotFeatureText}>{feature}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={modalContentStyles.spotBody}>
+          <Text style={modalContentStyles.spotPrice}>{item.price}</Text>
+          <Text style={[modalContentStyles.spotSpots, !item.isAvailable && modalContentStyles.spotSpotsUnavailable]}>
+            {item.isAvailable ? `${item.spots} spots` : 'Full'}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderFooter = () => {
+    if (!loading) return null;
+    
+    return (
+      <View style={modalContentStyles.loadingFooter}>
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={modalContentStyles.loadingFooterText}>Loading more spots...</Text>
+      </View>
+    );
+  };
+
+  const renderEmptyComponent = () => {
+    if (loading) {
+      return (
         <View style={modalContentStyles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={modalContentStyles.loadingText}>Loading available spots...</Text>
         </View>
-      </View>
-    );
-  }
+      );
+    }
 
-  if (items.length === 0) {
     return (
-      <View style={modalContentStyles.container}>
-        <View style={modalContentStyles.emptyContainer}>
-          <MaterialIcons name="local-parking" size={64} color={colors.textSecondary} />
-          <Text style={modalContentStyles.emptyTitle}>No Available Spots</Text>
-          <Text style={modalContentStyles.emptySubtitle}>
-            No parking spots are currently available. Try adjusting your filters or check back later.
-          </Text>
-        </View>
+      <View style={modalContentStyles.emptyContainer}>
+        <MaterialIcons name="local-parking" size={64} color={colors.textSecondary} />
+        <Text style={modalContentStyles.emptyTitle}>No Available Spots</Text>
+        <Text style={modalContentStyles.emptySubtitle}>
+          No parking spots are currently available. Try adjusting your filters or check back later.
+        </Text>
       </View>
     );
-  }
+  };
+
+  const handleEndReached = () => {
+    if (hasMore && !loading) {
+      onLoadMore();
+    }
+  };
 
   return (
     <View style={modalContentStyles.container}>
@@ -1246,53 +1383,17 @@ function AvailableSpotsModalContent({ parkingLots, loading }: { parkingLots: Par
         </View>
       </View>
 
-      <View style={modalContentStyles.spotsList}>
-        {items.map((item) => (
-          <TouchableOpacity
-            key={item.id}
-            style={[modalContentStyles.spotCard, !item.isAvailable && modalContentStyles.spotCardUnavailable]}
-            activeOpacity={0.8}
-          >
-            <View style={modalContentStyles.spotHeader}>
-              <View style={modalContentStyles.spotTitleRow}>
-                <Text style={modalContentStyles.spotTitle} numberOfLines={1}>{item.title}</Text>
-                <TouchableOpacity 
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    toggleFavorite(item.id);
-                  }}
-                >
-                  <MaterialIcons
-                    name={favorites.has(item.id) ? "favorite" : "favorite-border"}
-                    size={18}
-                    color={favorites.has(item.id) ? "#FF69B4" : colors.textSecondary}
-                  />
-                </TouchableOpacity>
-              </View>
-              <View style={modalContentStyles.spotMetaRow}>
-                <Text style={modalContentStyles.spotDistance}>{item.distance}</Text>
-                <View style={modalContentStyles.spotRating}>
-                  <MaterialIcons name="star" size={12} color="#FFD700" />
-                  <Text style={modalContentStyles.spotRatingText}>{item.rating}</Text>
-                </View>
-              </View>
-            </View>
-            <View style={modalContentStyles.spotFeatures}>
-              {item.features.map((feature, index) => (
-                <View key={index} style={modalContentStyles.spotFeatureTag}>
-                  <Text style={modalContentStyles.spotFeatureText}>{feature}</Text>
-                </View>
-              ))}
-            </View>
-            <View style={modalContentStyles.spotBody}>
-              <Text style={modalContentStyles.spotPrice}>{item.price}</Text>
-              <Text style={[modalContentStyles.spotSpots, !item.isAvailable && modalContentStyles.spotSpotsUnavailable]}>
-                {item.isAvailable ? `${item.spots} spots` : 'Full'}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <FlatList
+        data={items}
+        renderItem={renderSpotItem}
+        keyExtractor={(item) => item.id}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.1}
+        ListFooterComponent={renderFooter}
+        ListEmptyComponent={renderEmptyComponent}
+        contentContainerStyle={modalContentStyles.flatListContent}
+        showsVerticalScrollIndicator={false}
+      />
     </View>
   );
 }
@@ -1492,6 +1593,21 @@ const modalContentStyles = StyleSheet.create({
   },
   spotsList: {
     gap: 16,
+  },
+  flatListContent: {
+    paddingHorizontal: 24,
+    paddingBottom: 24,
+  },
+  loadingFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    gap: 8,
+  },
+  loadingFooterText: {
+    color: colors.textSecondary,
+    fontSize: 14,
   },
   spotCard: {
     backgroundColor: colors.surface,

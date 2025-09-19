@@ -11,7 +11,10 @@ import {
   ParkingLotDetailDTO,
   ParkingLotSearchDTO,
   ParkingSession,
+  ParkingSpaceImageDTO,
   ParkingSpaceSummaryDTO,
+  PricingQuoteDTO,
+  ReviewSummaryDTO,
   User,
   UserCar
 } from '@/types';
@@ -205,7 +208,7 @@ export const parkingApi = {
   async findNearbyParkingLots(
     latitude: number, 
     longitude: number, 
-    radiusKm: number = 5.0, 
+    radiusKm: number = 50.0, 
     page: number = 0, 
     size: number = 10
   ): Promise<PaginatedResponse<ParkingLotSearchDTO>> {
@@ -271,6 +274,24 @@ export const parkingApi = {
   async findParkingSpacesByType(spaceType: string, page: number = 0, size: number = 10): Promise<PaginatedResponse<ParkingSpaceSummaryDTO>> {
     return makeRequest<PaginatedResponse<ParkingSpaceSummaryDTO>>(`/parking/spaces/by-type/${spaceType}?page=${page}&size=${size}`);
   },
+
+  // Reviews
+  async getParkingLotReviews(
+    lotId: number, 
+    page: number = 0, 
+    size: number = 10, 
+    sortBy: string = 'createdAt', 
+    sortDir: string = 'desc'
+  ): Promise<PaginatedResponse<ReviewSummaryDTO>> {
+    return makeRequest<PaginatedResponse<ReviewSummaryDTO>>(
+      `/parking/lots/${lotId}/reviews?page=${page}&size=${size}&sortBy=${sortBy}&sortDir=${sortDir}`
+    );
+  },
+
+  // Images
+  async getParkingLotImages(lotId: number): Promise<ParkingSpaceImageDTO[]> {
+    return makeRequest<ParkingSpaceImageDTO[]>(`/parking/lots/${lotId}/images`);
+  },
 };
 
 // Rate Management API functions
@@ -284,6 +305,33 @@ export const rateApi = {
     return makeRequest<PaginatedResponse<LotRateAssignmentDTO>>(
       `/admin/rates/lots/${lotId}/rate-assignments?page=${page}&size=${size}&sort=${sortBy}`
     );
+  },
+};
+
+// Pricing API functions
+export const pricingApi = {
+  async getPricingQuote(quoteData: PricingQuoteDTO): Promise<Money> {
+    return makeRequest<Money>('/pricing/quote', {
+      method: 'POST',
+      body: JSON.stringify(quoteData),
+    });
+  },
+
+  async getStandaloneSpaceQuote(
+    spaceId: number,
+    vehicleType: string,
+    userGroup: string,
+    startTime: string,
+    endTime: string
+  ): Promise<Money> {
+    const params = new URLSearchParams({
+      vehicleType,
+      userGroup,
+      startTime,
+      endTime,
+    });
+    
+    return makeRequest<Money>(`/pricing/spaces/${spaceId}/quote?${params.toString()}`);
   },
 };
 
