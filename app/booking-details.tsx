@@ -1,7 +1,8 @@
 import { colors } from '@/constants/SharedStyles';
+import { bookingsApi } from '@/utils/api';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     Alert,
     ScrollView,
@@ -50,39 +51,80 @@ export default function BookingDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [bookingDetails, setBookingDetails] = useState<BookingDetails | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock booking data - in real app, this would be fetched based on bookingId
-  const bookingDetails: BookingDetails = {
-    id: bookingId || '1',
-    locationName: 'City Center Garage',
-    address: '123 Main St, Downtown, NY 10001',
-    spotNumber: 'A-12',
-    bookingReference: 'PCK001234',
-    date: 'Today',
-    startTime: '2:30 PM',
-    endTime: '4:30 PM',
-    duration: '2 hours',
-    price: '$5.00',
-    status: 'active',
-    vehicleInfo: {
-      brand: 'Toyota',
-      model: 'Camry',
-      licensePlate: 'ABC-1234',
-      color: 'Silver',
-    },
-    paymentMethod: {
-      type: 'Credit Card',
-      lastFour: '1234',
-      brand: 'Visa',
-    },
-    features: ['Covered', 'Security', 'EV Charging'],
-    contactInfo: {
-      phone: '+1 (555) 123-4567',
-      email: 'support@smartparking.com',
-    },
-    createdAt: 'Sep 13, 2024 at 2:15 PM',
-    notes: 'Please park in the designated spot and ensure your vehicle is properly positioned.',
+  useEffect(() => {
+    if (bookingId) {
+      loadBookingDetails();
+    }
+  }, [bookingId]);
+
+  const loadBookingDetails = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const booking = await bookingsApi.getBookingById(Number(bookingId));
+      
+      // Convert Booking to BookingDetails format
+      const details: BookingDetails = {
+        id: booking.id.toString(),
+        locationName: booking.parkingLotName,
+        address: booking.parkingLotAddress,
+        spotNumber: booking.parkingSpaceLabel,
+        bookingReference: booking.bookingReference,
+        date: new Date(booking.startTime).toLocaleDateString(),
+        startTime: new Date(booking.startTime).toLocaleTimeString('en-US', { 
+          hour: 'numeric', 
+          minute: '2-digit',
+          hour12: true 
+        }),
+        endTime: new Date(booking.endTime).toLocaleTimeString('en-US', { 
+          hour: 'numeric', 
+          minute: '2-digit',
+          hour12: true 
+        }),
+        duration: calculateDuration(booking.startTime, booking.endTime),
+        price: `${booking.currency} ${booking.totalPrice}`,
+        status: booking.status.toLowerCase() as 'active' | 'completed' | 'cancelled' | 'upcoming',
+        vehicleInfo: {
+          brand: 'Unknown', // Not provided by API
+          model: 'Unknown', // Not provided by API
+          licensePlate: booking.vehiclePlate,
+          color: 'Unknown', // Not provided by API
+        },
+        paymentMethod: {
+          type: 'Credit Card', // Default assumption
+          lastFour: booking.paymentMethodId ? booking.paymentMethodId.slice(-4) : '****',
+          brand: 'Card', // Default assumption
+        },
+        features: ['Covered', 'Security'], // Default features - could be enhanced with lot data
+        contactInfo: {
+          phone: '+1 (555) 123-4567', // Default support number
+          email: 'support@smartparking.com', // Default support email
+        },
+        createdAt: booking.createdAt,
+        notes: booking.notes || '',
+      };
+      
+      setBookingDetails(details);
+    } catch (error) {
+      console.error('Failed to load booking details:', error);
+      setError('Failed to load booking details');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const calculateDuration = (startTime: string, endTime: string) => {
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const diffMs = end.getTime() - start.getTime();
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
   };
 
   const handleNavigation = (key: 'home' | 'search' | 'available' | 'bookings' | 'profile') => {
@@ -161,6 +203,41 @@ export default function BookingDetailsScreen() {
       <Text style={styles.detailValue}>{value}</Text>
     </View>
   );
+
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.headerSpacer} />
+          <Text style={styles.headerTitle}>Booking Details</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <MaterialIcons name="hourglass-empty" size={48} color={colors.textSecondary} />
+          <Text style={styles.loadingText}>Loading booking details...</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (error || !bookingDetails) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor={colors.background} />
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <View style={styles.headerSpacer} />
+          <Text style={styles.headerTitle}>Booking Details</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+        <View style={styles.errorContainer}>
+          <MaterialIcons name="error-outline" size={48} color={colors.textSecondary} />
+          <Text style={styles.errorTitle}>Failed to Load Booking</Text>
+          <Text style={styles.errorSubtitle}>{error || 'Booking not found'}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -586,5 +663,35 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 12,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
+    color: colors.textSecondary,
+    fontSize: 16,
+    marginTop: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 24,
+  },
+  errorTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  errorSubtitle: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
   },
 });

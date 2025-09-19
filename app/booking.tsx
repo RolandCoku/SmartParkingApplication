@@ -47,6 +47,7 @@ export default function BookingScreen() {
   const { lotId } = useLocalSearchParams<{ lotId: string }>();
   const [currentStep, setCurrentStep] = useState<'space' | 'time' | 'vehicle' | 'payment' | 'confirmation'>('space');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [minDate] = useState(new Date().toISOString().split('T')[0]); // Today's date as minimum
   const [selectedStartTime, setSelectedStartTime] = useState('');
   const [selectedEndTime, setSelectedEndTime] = useState('');
   const [selectedVehicleType, setSelectedVehicleType] = useState<'CAR' | 'MOTORCYCLE' | 'TRUCK' | 'VAN'>('CAR');
@@ -85,6 +86,12 @@ export default function BookingScreen() {
     loadAvailableSpaces();
     loadParkingLot();
   }, [lotId]);
+
+  // Reset time selections when date changes to ensure consistency
+  useEffect(() => {
+    setSelectedStartTime('');
+    setSelectedEndTime('');
+  }, [selectedDate]);
 
   // Update overall loading state based on individual loading states
   useEffect(() => {
@@ -203,6 +210,7 @@ export default function BookingScreen() {
       const endDateTime = `${selectedDate}T${selectedEndTime}:00.000Z`;
 
       const quoteData: PricingQuoteDTO = {
+        parkingLotId: lotId ? Number(lotId) : undefined,
         parkingSpaceId: selectedSpaceId,
         vehicleType: selectedVehicleType,
         userGroup: userGroup,
@@ -210,6 +218,7 @@ export default function BookingScreen() {
         endTime: endDateTime,
       };
 
+      console.log('Pricing quote data:', quoteData);
       const price = await pricingApi.getPricingQuote(quoteData);
       setCurrentPrice(price);
     } catch (error) {
@@ -229,13 +238,37 @@ export default function BookingScreen() {
 
   // Real parking lot data loaded from API
 
-  const timeSlots = [
-    '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
-    '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
-    '14:00', '14:30', '15:00', '15:30', '16:00', '16:30',
-    '17:00', '17:30', '18:00', '18:30', '19:00', '19:30',
-    '20:00', '20:30', '21:00', '21:30', '22:00'
-  ];
+  // Get available time slots based on current time
+  const getAvailableTimeSlots = () => {
+    const allTimeSlots = [
+      '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
+      '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
+      '14:00', '14:30', '15:00', '15:30', '16:00', '16:30',
+      '17:00', '17:30', '18:00', '18:30', '19:00', '19:30',
+      '20:00', '20:30', '21:00', '21:30', '22:00'
+    ];
+
+    const now = new Date();
+    const isToday = selectedDate === minDate;
+    
+    if (!isToday) {
+      // If not today, all slots are available
+      return allTimeSlots;
+    }
+
+    // If today, filter out past times
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const currentTime = currentHour * 60 + currentMinute; // Convert to minutes
+
+    return allTimeSlots.filter(timeSlot => {
+      const [hours, minutes] = timeSlot.split(':').map(Number);
+      const slotTime = hours * 60 + minutes;
+      return slotTime > currentTime; // Only show future times
+    });
+  };
+
+  const timeSlots = getAvailableTimeSlots();
 
   const vehicleTypes = [
     { id: 'CAR', label: 'Car', icon: 'directions-car' },
@@ -301,6 +334,21 @@ export default function BookingScreen() {
           Alert.alert('Error', 'End time must be after start time');
           return;
         }
+        
+        // Validate that times are in the future
+        const startDateTime = new Date(`${selectedDate}T${selectedStartTime}:00.000Z`);
+        const endDateTime = new Date(`${selectedDate}T${selectedEndTime}:00.000Z`);
+        const now = new Date();
+        
+        if (startDateTime <= now) {
+          Alert.alert('Error', 'Start time must be in the future');
+          return;
+        }
+        if (endDateTime <= now) {
+          Alert.alert('Error', 'End time must be in the future');
+          return;
+        }
+        
         setCurrentStep('vehicle');
         break;
       case 'vehicle':
@@ -558,6 +606,7 @@ export default function BookingScreen() {
         const isAvailable = availableDates.includes(dateString);
         const isSelected = selectedDate === dateString;
         const isToday = dateString === today.toISOString().split('T')[0];
+        const isPast = dateString < today.toISOString().split('T')[0];
         
         days.push(
           <TouchableOpacity
@@ -566,15 +615,15 @@ export default function BookingScreen() {
               styles.calendarDay,
               isSelected && styles.calendarDaySelected,
               isToday && styles.calendarDayToday,
-              !isAvailable && styles.calendarDayUnavailable
+              (!isAvailable || isPast) && styles.calendarDayUnavailable
             ]}
             onPress={() => {
-              if (isAvailable) {
+              if (isAvailable && !isPast) {
                 setSelectedDate(dateString);
                 setShowCalendarModal(false);
               }
             }}
-            disabled={!isAvailable}
+            disabled={!isAvailable || isPast}
           >
             <Text style={[
               styles.calendarDayText,

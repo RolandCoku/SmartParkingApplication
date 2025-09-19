@@ -8,16 +8,16 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    RefreshControl,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -302,7 +302,7 @@ export default function BookingsScreen() {
       <View style={styles.bookingFooter}>
         <View style={styles.priceContainer}>
           <Text style={styles.duration}>{calculateDuration(booking.startTime, booking.endTime)}</Text>
-          <Text style={styles.price}>${booking.totalPrice}</Text>
+          <Text style={styles.price}>{booking.currency} {booking.totalPrice}</Text>
         </View>
 
         {booking.status === 'ACTIVE' && (
