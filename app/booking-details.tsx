@@ -4,13 +4,13 @@ import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BottomBar from '../components/BottomBar';
@@ -156,6 +156,8 @@ export default function BookingDetailsScreen() {
   };
 
   const handleExtendBooking = () => {
+    if (!bookingDetails) return;
+    
     Alert.alert(
       'Extend Booking',
       `Extend parking at ${bookingDetails.locationName}?`,
@@ -168,6 +170,8 @@ export default function BookingDetailsScreen() {
   };
 
   const handleCancelBooking = () => {
+    if (!bookingDetails) return;
+    
     Alert.alert(
       'Cancel Booking',
       `Are you sure you want to cancel your booking at ${bookingDetails.locationName}?`,
@@ -179,6 +183,8 @@ export default function BookingDetailsScreen() {
   };
 
   const handleContactSupport = () => {
+    if (!bookingDetails) return;
+    
     Alert.alert(
       'Contact Support',
       'Choose how you\'d like to contact support:',
